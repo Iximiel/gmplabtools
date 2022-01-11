@@ -22,13 +22,14 @@
 FF=gfortran
 DEVELOPFLAGS= -g -Wall -Wno-maybe-uninitialized
 FFLAGS=-O3 -cpp #$(DEVELOPFLAGS)
+CXXFLAGS=-Og -cpp $(DEVELOPFLAGS)
 LDFLAGS=-llapack -lblas
 MODULES=libpamm.f90 xyz.f90 random.f90
 OBJECTS=$(MODULES:.f90=.o)
 TOOLS=pamm
 
 .PHONY: all clean cleanall $(TOOLS)
-all: $(TOOLS)
+all: $(TOOLS) pamm++
 
 $(TOOLS:%=%.o): $(OBJECTS)
 
@@ -39,9 +40,22 @@ $(TOOLS:%=../bin/%): ../bin/%: %.o $(OBJECTS)
 	@mkdir -p ../bin
 	@$(FF) $(FFLAGS) -o $@ $^ $(LDFLAGS)
 
+pamm++: pamm++.o libpamm++.o 
+	@echo compiling executable $@
+	@$(CXX) $(CXXFLAGS) -o $@ $^
+##$(LDFLAGS)
+
 %.o: %.f90
 	@echo compiling object $@
 	@$(FF) $(FFLAGS) -c $<
+
+%.o: %.cxx
+	@echo compiling object $@
+	@$(CXX) $(CXXFLAGS) -c $<
+	
+%.o: %.cpp
+	@echo compiling object $@
+	@$(CXX) $(CXXFLAGS) -c $<
 
 clean:
 	@rm -vf *.o *.mod
