@@ -41,8 +41,33 @@
     */
 
 #include "libpamm++.hpp"
+#include <iostream>
 
+using std ::cout;
+using std::endl;
 int main(int /*argc*/, char ** /*argv*/) {
-  libpamm::clusteringMode();
+  constexpr size_t DIM = 8;
+  libpamm::distanceMatrix t(DIM);
+  cout << "Dimension: " << ((DIM - 1) * DIM) / 2 << endl << endl;
+  int TT = 0;
+  for (size_t i = 0; i < DIM; i++) {
+    for (size_t j = i + 1; j < DIM; j++) {
+      t(i, j) = TT;
+      cout << i << ", " << j << ": " << t.address(i, j) << " -> " << TT << " ("
+           << int(DIM * (i + 1) - DIM - i * (i + 1) / 2) << ")" << endl;
+      ++TT;
+    }
+  }
+  cout << endl;
+  cout << endl;
+  for (size_t i = 0; i < DIM; i++) {
+    for (size_t j = 0; j < i + 1; j++) {
+      cout << "n ";
+    }
+    for (size_t j = i + 1; j < DIM; j++) {
+      cout << t(j, i) << " ";
+    }
+    cout << endl;
+  }
   return 0;
 }
