@@ -1,32 +1,53 @@
 #include "libpamm++.hpp"
+#include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <limits>
 #include <numeric>
 //#include <functional>
 namespace libpamm {
 void clusteringMode() {}
 double SOAPDistance(size_t dim, double *x, double *y, double xyNormProduct) {
-  return std::sqrt(2.0 - 2.0 * std::inner_product(x, x + dim, y, 0.0) /
-                             xyNormProduct);
+  double sim = std::inner_product(x, x + dim, y, 0.0);
+  return std::sqrt(2.0 - 2.0 * sim / xyNormProduct);
 }
 
 double SOAPDistance(size_t dim, double *x, double *y) {
   return SOAPDistance(dim, x, y,
-                      std::inner_product(x, x + dim, x, 0.0) *
-                          std::inner_product(y, y + dim, y, 0.0));
+                      sqrt(std::inner_product(x, x + dim, x, 0.0) *
+                           std::inner_product(y, y + dim, y, 0.0)));
 }
-
-pammgrid::pammgrid(size_t gridsize, size_t Dim)
-    : grid_(gridsize * Dim), samples_(gridsize), dim_(Dim) {}
-
-double &pammgrid::grid(size_t i, size_t j) { return grid_[i * dim_ + j]; }
-double pammgrid::grid(size_t i, size_t j) const { return grid_[i * dim_ + j]; }
-
-size_t &pammgrid::samples(size_t i) { return samples_[i]; }
-size_t pammgrid::samples(size_t i) const { return samples_[i]; }
 
 distanceMatrix::distanceMatrix(size_t dim)
     : data_(new double[((dim - 1) * dim) / 2]), dim_(dim) {}
+
+distanceMatrix::distanceMatrix(const distanceMatrix &other)
+    : data_(new double[((other.dim_ - 1) * other.dim_) / 2]), dim_(other.dim_) {
+  const size_t len = ((dim_ - 1) * dim_) / 2;
+  for (size_t i = 0; i < len; ++i) {
+    this->data_[i] = other.data_[i];
+  }
+}
+
+distanceMatrix::distanceMatrix(distanceMatrix &&other)
+    : data_(other.data_), dim_(other.dim_) {
+  other.data_ = nullptr;
+}
+
+distanceMatrix &distanceMatrix::operator=(distanceMatrix other) {
+  if (&other != this) {
+    distanceMatrix::swap(other);
+  }
+  return *this;
+}
+
+void distanceMatrix::swap(distanceMatrix &other) {
+  if (dim_ != other.dim_) {
+    throw "Error in distanceMatrix swap: different size";
+  }
+  std::swap(this->data_, other.data_);
+}
+
 distanceMatrix::~distanceMatrix() { delete[] data_; }
 
 double &distanceMatrix::operator()(size_t i, size_t j) {
@@ -37,90 +58,153 @@ double distanceMatrix::operator()(size_t i, size_t j) const {
   return data_[address(i, j)];
 }
 
-distanceMatrix CalculateDistanceGridSOAP(double **data, size_t dataDim,
-                                         size_t dim) {
+distanceMatrix CalculateDistanceMatrixSOAP(double **data, size_t dataDim,
+                                           size_t dim) {
   distanceMatrix distances(dataDim);
   std::vector<double> norms(dataDim);
   for (auto i = 0U; i < dataDim; ++i) {
-    norms[i] = std::inner_product(data[i], data[i] + dim, data[i], 0.0);
+    norms[i] = sqrt(std::inner_product(data[i], data[i] + dim, data[i], 0.0));
   }
-
+  double dmax = 0.0;
+  size_t ti, tj;
   for (auto i = 0U; i < dataDim; ++i) {
     for (auto j = 0; j < i; ++j) {
       distances(i, j) =
           SOAPDistance(dim, data[i], data[j], norms[i] * norms[j]);
+      if (distances(i, j) > dmax) {
+        dmax = distances(i, j);
+        ti = i;
+        tj = j;
+      }
     }
   }
   return distances;
 }
 
-pammgrid createGrid(size_t dim, size_t nsample, size_t gridDim, double **points,
-                    size_t firstPoint = 0) {
+/**/
+pammClustering::pammClustering() {}
 
-  pammgrid grid(gridDim, dim);
-  /*SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,ni,iminij, &
-                      ineigh,wi,saveidx,idxgrid,ofile)
-       ! Select ngrid grid points from nsamples using minmax and
-       ! the voronoi polyhedra around them.
-       !
-       ! Args:
-       !    nsamples: total points number
-       !    ngrid: number of grid points
-       !    x: array containing the data samples
-       !    y: array that will contain the grid points
-       !    ni: array cotaing the number of samples inside the Voronoj
-     polyhedron of each grid point !    iminij: array containg the neighbor list
-     for data samples
-
-       INTEGER, INTENT(IN) :: D
-       DOUBLE PRECISION, INTENT(IN) :: period(D)
-       INTEGER, INTENT(IN) :: nsamples
-       INTEGER, INTENT(IN) :: ngrid
-       DOUBLE PRECISION, DIMENSION(D,nsamples), INTENT(IN) :: x
-       DOUBLE PRECISION, DIMENSION(nsamples), INTENT(IN) :: wj
-
-       DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
-       INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ni
-       INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
-       INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
-       DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: wi
-       INTEGER, DIMENSION(ngrid), INTENT(OUT) :: idxgrid
-       CHARACTER(LEN=1024), INTENT(IN) :: ofile
-       LOGICAL, INTENT(IN) :: saveidx
-*/
-  for (auto k = 0U; k < dim; ++k) {
-    grid.grid(0, k) = points[firstPoint][k];
+pammClustering::~pammClustering() {
+  if (nsamples > 0) {
+    delete[] data[0];
   }
-  grid.samples(0) = firstPoint;
+  delete[] data;
+}
+pammClustering::gridSimplified::gridSimplified(size_t gridDim)
+    : grid(gridDim, 0), ni(gridDim, 0), wi(gridDim, 0.0) {}
 
-  std::vector<double> Dmins(nsample, std::numeric_limits<double>::max());
-  std::vector<size_t> Imins(nsample, 0);
+pammClustering::gridSimplified
+pammClustering::createGrid(distanceMatrix distances, size_t firstPoint) {
+  gridSimplified grid(gridDim);
+  grid.grid[0] = firstPoint;
+
+  std::vector<double> Dmins(nsamples, std::numeric_limits<double>::max());
+  std::vector<size_t> closestGridIndex(nsamples, 0);
+  std::vector<size_t> voronoiAssociationIndex(gridDim, 0);
   size_t jmax = 0;
-  double dMax, dNeighMin;
+
   double dij;
-  for (auto i = 0U; i < gridDim - 1; ++i) {
-    dMax = 0.0;
-    dNeighMin = std::numeric_limits<double>::max();
-    for (auto j = 0U; j < nsample; ++j) {
-      dij = SOAPDistance(dim, points[i], points[j]);
+  {
+    double dMax, dNeighMin;
+    for (auto i = 0U; i < gridDim - 1; ++i) {
+      dMax = 0.0;
+      dNeighMin = std::numeric_limits<double>::max();
+      auto gridIndex = grid.grid[i];
+      // find the farthest point from gridIndex
+      for (auto j = 0U; j < nsamples; ++j) {
+        if (gridIndex == j) {
+          continue;
+        }
+        dij = distances(gridIndex, j);
+        if (dij < Dmins[j]) {
+          Dmins[j] = dij;
+          // keep track of the Voronoi attribution
+          closestGridIndex[j] = i;
+        }
+        if (dMax < Dmins[j] // &&!std::binary_search(grid.grid.begin(),
+                            // grid.grid.begin() + 1 + i,j)
+        ) {
+          bool t = std::binary_search(grid.grid.begin(),
+                                      grid.grid.begin() + 1 + i, j);
+          if (!t) {
+            dMax = Dmins[j];
+            jmax = j;
+          }
+        }
+        if (dij < dNeighMin && (0.0 < dij)) {
+          dNeighMin = dij;
+          // store index of closest sample neighbor to grid point
+          voronoiAssociationIndex[i] = j;
+        }
+      }
+      grid.grid[i + 1] = jmax;
+      // this eliminates the possibility to travers two times the same point
+      // Dmins[jmax] = -1.0;
+    }
+  }
+  // completes the voronoi attribuition for the last point in the grid
+  {
+    auto gridIndex = grid.grid[gridDim - 1];
+    auto dNeighMin = std::numeric_limits<double>::max();
+    for (auto j = 0U; j < nsamples; ++j) {
+      if (gridIndex == j) {
+        continue;
+      }
+      dij = distances(gridIndex, j);
       if (dij < Dmins[j]) {
         Dmins[j] = dij;
-        Imins[j] = i;
-      }
-      if (dMax < Dmins[j]) {
-        dMax = Dmins[j];
-        jmax = j;
+        closestGridIndex[j] = gridDim - 1;
       }
       if (dij < dNeighMin && (0.0 < dij)) {
         dNeighMin = dij;
-        Imins[i] = j;
+        voronoiAssociationIndex[gridDim - 1] = j;
       }
     }
-    for (auto k = 0U; k < dim; ++k) {
-      grid.grid(i + 1, k) = points[jmax][k];
-    }
-    grid.samples(i + 1) = jmax;
+  }
+  // Assign neighbor list pointer of voronois
+  // Number of points in each voronoi polyhedra
+
+  for (auto j = 0U; j < nsamples; ++j) {
+    ++grid.ni[closestGridIndex[j]];
+    grid.wi[closestGridIndex[j]] += dataWeights[j];
   }
   return grid;
 }
+
+void pammClustering::work() {
+
+  auto distances = CalculateDistanceMatrixSOAP(data, nsamples, dim);
+  size_t randomGeneratedFirstPoint = 1;
+  auto grid = createGrid(distances, randomGeneratedFirstPoint);
+  std::ofstream f("test_grid.soap");
+  std::ofstream g("test_grid.dat");
+  for (auto i = 0; i < gridDim; ++i) {
+    for (auto j = 0; j < dim; ++j) {
+      f << ((j == 0) ? "" : " ") << data[grid.grid[i]][j];
+    }
+    f << '\n';
+    g << grid.grid[i] << '\n';
+  }
+  f.close();
+}
+
+void pammClustering::testLoadData() {
+  std::ifstream f("test.soap");
+  dim = 324;
+  // nsamples = 30900;
+  nsamples = 30;
+  data = new double *[nsamples];
+  data[0] = new double[nsamples * dim];
+  for (auto i = 0; i < nsamples; ++i) {
+    if (i > 0) {
+      data[i] = data[0] + i * dim;
+    }
+    for (auto j = 0; j < dim; ++j) {
+      f >> data[i][j];
+    }
+  }
+  dataWeights = std::vector<double>(nsamples, 1.0);
+  gridDim = 10;
+}
+
 } // namespace libpamm
