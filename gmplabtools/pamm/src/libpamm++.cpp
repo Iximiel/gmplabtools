@@ -96,13 +96,14 @@ pammClustering::gridSimplified::gridSimplified(size_t gridDim)
 pammClustering::gridSimplified
 pammClustering::createGrid(distanceMatrix distances, size_t firstPoint) {
   gridSimplified grid(gridDim);
-  grid.grid[0] = firstPoint;
 
   std::vector<double> Dmins(nsamples, std::numeric_limits<double>::max());
   std::vector<size_t> closestGridIndex(nsamples, 0);
   std::vector<size_t> voronoiAssociationIndex(gridDim, 0);
   size_t jmax = 0;
-
+  grid.grid[0] = firstPoint;
+  Dmins[firstPoint] = 0.0;
+  closestGridIndex[firstPoint] = 0;
   double dij;
   {
     double dMax, dNeighMin;
@@ -121,15 +122,9 @@ pammClustering::createGrid(distanceMatrix distances, size_t firstPoint) {
           // keep track of the Voronoi attribution
           closestGridIndex[j] = i;
         }
-        if (dMax < Dmins[j] // &&!std::binary_search(grid.grid.begin(),
-                            // grid.grid.begin() + 1 + i,j)
-        ) {
-          bool t = std::binary_search(grid.grid.begin(),
-                                      grid.grid.begin() + 1 + i, j);
-          if (!t) {
-            dMax = Dmins[j];
-            jmax = j;
-          }
+        if (dMax < Dmins[j]) {
+          dMax = Dmins[j];
+          jmax = j;
         }
         if (dij < dNeighMin && (0.0 < dij)) {
           dNeighMin = dij;
@@ -138,8 +133,8 @@ pammClustering::createGrid(distanceMatrix distances, size_t firstPoint) {
         }
       }
       grid.grid[i + 1] = jmax;
-      // this eliminates the possibility to travers two times the same point
-      // Dmins[jmax] = -1.0;
+      Dmins[jmax] = 0.0;
+      closestGridIndex[jmax] = i+1;
     }
   }
   // completes the voronoi attribuition for the last point in the grid
@@ -191,8 +186,8 @@ void pammClustering::work() {
 void pammClustering::testLoadData() {
   std::ifstream f("test.soap");
   dim = 324;
-  // nsamples = 30900;
-  nsamples = 30;
+  nsamples = 30900;
+  // nsamples = 30;
   data = new double *[nsamples];
   data[0] = new double[nsamples * dim];
   for (auto i = 0; i < nsamples; ++i) {
@@ -204,7 +199,7 @@ void pammClustering::testLoadData() {
     }
   }
   dataWeights = std::vector<double>(nsamples, 1.0);
-  gridDim = 10;
+  gridDim = 1000;
 }
 
 } // namespace libpamm
