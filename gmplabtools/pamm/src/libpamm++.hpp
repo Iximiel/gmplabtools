@@ -24,11 +24,9 @@ public:
   double &operator()(size_t, size_t);
   double operator()(size_t, size_t) const;
   inline size_t address(size_t i, size_t j) const {
-    if (i > j)
+    if (i < j)
       std::swap(i, j);
-    return (dim_ * (i + 1) - dim_ - i * (i + 1) / 2) + j - i - 1;
-    // return dim_ * i * (i + 1) / 2 + j - (1 + i);
-    // return i * (i + 1) / 2 + j;
+    return (i * (i - 1) / 2) + j;
   }
 
 private:

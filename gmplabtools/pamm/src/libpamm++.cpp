@@ -5,15 +5,15 @@
 //#include <functional>
 namespace libpamm {
 void clusteringMode() {}
-double SOAPDistance(size_t dim, double *x, double *y, double xNorm,
-                    double yNorm) {
+double SOAPDistance(size_t dim, double *x, double *y, double xyNormProduct) {
   return std::sqrt(2.0 - 2.0 * std::inner_product(x, x + dim, y, 0.0) /
-                             (xNorm * yNorm));
+                             xyNormProduct);
 }
 
 double SOAPDistance(size_t dim, double *x, double *y) {
-  return SOAPDistance(dim, x, y, std::inner_product(x, x + dim, x, 0.0),
-                      std::inner_product(y, y + dim, y, 0.0));
+  return SOAPDistance(dim, x, y,
+                      std::inner_product(x, x + dim, x, 0.0) *
+                          std::inner_product(y, y + dim, y, 0.0));
 }
 
 pammgrid::pammgrid(size_t gridsize, size_t Dim)
@@ -39,18 +39,19 @@ double distanceMatrix::operator()(size_t i, size_t j) const {
 
 distanceMatrix CalculateDistanceGridSOAP(double **data, size_t dataDim,
                                          size_t dim) {
-  distanceMatrix distance(dataDim);
-  std::vector<double> norm(dataDim);
+  distanceMatrix distances(dataDim);
+  std::vector<double> norms(dataDim);
   for (auto i = 0U; i < dataDim; ++i) {
-    norm[i] = std::inner_product(data[i], data[i] + dim, data[i], 0.0);
+    norms[i] = std::inner_product(data[i], data[i] + dim, data[i], 0.0);
   }
 
   for (auto i = 0U; i < dataDim; ++i) {
-    for (auto j = i + 1; j < dataDim; ++j) {
-      distance(i, j) = SOAPDistance(dim, data[i], data[j], norm[i], norm[j]);
+    for (auto j = 0; j < i; ++j) {
+      distances(i, j) =
+          SOAPDistance(dim, data[i], data[j], norms[i] * norms[j]);
     }
   }
-  return distance;
+  return distances;
 }
 
 pammgrid createGrid(size_t dim, size_t nsample, size_t gridDim, double **points,
