@@ -59,7 +59,7 @@ namespace libpamm {
   pammClustering::gridInfo::gridInfo (size_t gridDim)
     : grid (gridDim, 0),
       // NofSamples (gridDim, 0),
-      WeightOfSamples (gridDim, 0.0),
+      // WeightOfSamples (gridDim, 0.0),
       voronoiAssociationIndex (gridDim, 0),
       gridNearestNeighbours (gridDim, 0),
       samplesIndexes (gridDim, std::vector<size_t> (0)),
@@ -133,7 +133,7 @@ namespace libpamm {
     // Number of points in each voronoi polyhedra
 
     for (auto j = 0U; j < nsamples; ++j) {
-      grid.WeightOfSamples[closestGridIndex[j]] += dataWeights[j];
+      // grid.WeightOfSamples[closestGridIndex[j]] += dataWeights[j];
       // TODO: push_back may result in poor performances: need to improve
       grid.samplesIndexes[closestGridIndex[j]].push_back (j);
     }
@@ -158,13 +158,16 @@ namespace libpamm {
       // DONE: generate distance matrix between grid points #445
       // TODO: can we do this while generating the grid?
       CalculateGridDistanceMatrix (grid);
-
+      // not using weight, yet:
+      double weightAccululation = double (nsamples);
       //~MAYBE: Gabriel Graphs //gs is gabriel clusterign flag in pamm #473
 
       //~MAYBE: global covariance on grid
-
+      // normwj:accumulator for wj, wj is the weight of the samples
       // TODO: localization weights #527
-
+      // CALL
+      // localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
+      // loalization #1307
       // TODO: localization- Kernel Density Bandwidths + warning on grid
       // dimension
       // // TODO: localization with fractionofpoint or fractionofspread
@@ -190,9 +193,14 @@ namespace libpamm {
           f << ((j == 0) ? "" : " ") << data[grid.grid[i]][j];
         }
         f << '\n';
-        g << grid.grid[i] << '\n';
+        g << grid.grid[i];
+        for (const auto j : grid.samplesIndexes[i]) {
+          g << ' ' << j;
+        }
+        g << '\n';
       }
       f.close ();
+      g.close ();
     } else {
       std::cerr << "Not initalized" << std::endl;
     }
@@ -213,7 +221,7 @@ namespace libpamm {
         f >> data[i][j];
       }
     }
-    dataWeights = std::vector<double> (nsamples, 1.0);
+    // dataWeights = std::vector<double> (nsamples, 1.0);
     gridDim = 1000;
     this->initialized_ = true;
     this->dataSetNormalized_ = false;
@@ -253,4 +261,25 @@ namespace libpamm {
       }
     }
   }
+
+  void pammClustering::CalculateCovarianceMatrix (gridInfo &grid) const {
+    // constexpr double wnorm = 1.0;
+    // assuming all the weight==1
+    // CALL covariance(D,period,ngrid,normwj,wi,y,Q)
+    //     covariance(D,period,N    ,wnorm,w,x,Q)
+    std::vector<double> means (dim);
+    std::vector<std::vector<double>> deltafromMeans (
+      grid.grid.size (), std::vector<double> (dim));
+    for (auto D = 0; D < dim; ++D) {
+      means[D] = 0.0;
+      for (const auto gridIndex : grid.grid) {
+        means[D] += data[gridIndex][D];
+      }
+      means[D] /= static_cast<double> (grid.grid.size ());
+      for (const auto gridIndex : grid.grid) {
+        deltafromMeans[gridIndex][D] = data[gridIndex][D] - means[D];
+      }
+    }
+  }
+
 } // namespace libpamm

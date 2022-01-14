@@ -8,7 +8,7 @@ double __libpamm_MOD_mahalanobis(int, double *period, double *x, double *y,
 }
 #endif
 */
-#include "triangularMatrix.hpp"
+#include "pammMatrix.hpp"
 #include <vector>
 namespace libpamm {
   void clusteringMode ();
@@ -32,7 +32,7 @@ namespace libpamm {
       gridInfo (size_t);
       std::vector<size_t> grid{};
       // std::vector<size_t> NofSamples{};// ni is .size of samplesIndexes
-      std::vector<double> WeightOfSamples{};         // wi
+      // std::vector<double> WeightOfSamples{};         // wi
       std::vector<size_t> voronoiAssociationIndex{}; // ineigh: closest sample
       std::vector<size_t> gridNearestNeighbours{};
       std::vector<std::vector<size_t>> samplesIndexes{};
@@ -44,13 +44,14 @@ namespace libpamm {
     void doNormalizeDataset ();
     double distanceCalculator (size_t, size_t) const;
     void CalculateGridDistanceMatrix (gridInfo &) const;
+    void CalculateCovarianceMatrix (gridInfo &) const;
 
   private:
     size_t dim{0};
     size_t nsamples{0};
     size_t gridDim{0};
 
-    std::vector<double> dataWeights{};
+    // std::vector<double> dataWeights{};
     double **data = nullptr; /// TODO: correct this
     gridInfo createGrid (size_t firstPoint = 0) const;
     bool initialized_{false};
