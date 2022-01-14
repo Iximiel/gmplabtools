@@ -8,14 +8,20 @@
 namespace libpamm {
 void clusteringMode() {}
 double SOAPDistance(size_t dim, double *x, double *y, double xyNormProduct) {
-  double sim = std::inner_product(x, x + dim, y, 0.0);
-  return std::sqrt(2.0 - 2.0 * sim / xyNormProduct);
+  // using already initialized NormProduct
+  xyNormProduct = std::sqrt(2.0 - 2.0 * std::inner_product(x, x + dim, y, 0.0) /
+                                      xyNormProduct);
+  return xyNormProduct;
 }
 
 double SOAPDistance(size_t dim, double *x, double *y) {
   return SOAPDistance(dim, x, y,
                       sqrt(std::inner_product(x, x + dim, x, 0.0) *
                            std::inner_product(y, y + dim, y, 0.0)));
+}
+
+double SOAPDistanceNormalized(size_t dim, double *x, double *y) {
+  return std::sqrt(2.0 - 2.0 * std::inner_product(x, x + dim, y, 0.0));
 }
 
 distanceMatrix::distanceMatrix(size_t dim)
@@ -134,7 +140,7 @@ pammClustering::createGrid(distanceMatrix distances, size_t firstPoint) {
       }
       grid.grid[i + 1] = jmax;
       Dmins[jmax] = 0.0;
-      closestGridIndex[jmax] = i+1;
+      closestGridIndex[jmax] = i + 1;
     }
   }
   // completes the voronoi attribuition for the last point in the grid
