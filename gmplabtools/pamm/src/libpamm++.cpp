@@ -7,20 +7,21 @@
 //#include <functional>
 namespace libpamm {
 void clusteringMode() {}
-double SOAPDistance(size_t dim, double *x, double *y, double xyNormProduct) {
+double SOAPDistance(size_t dim, const double *x, const double *y,
+                    double xyNormProduct) {
   // using already initialized NormProduct
   xyNormProduct = std::sqrt(2.0 - 2.0 * std::inner_product(x, x + dim, y, 0.0) /
                                       xyNormProduct);
   return xyNormProduct;
 }
 
-double SOAPDistance(size_t dim, double *x, double *y) {
+double SOAPDistance(size_t dim, const double *x, const double *y) {
   return SOAPDistance(dim, x, y,
                       sqrt(std::inner_product(x, x + dim, x, 0.0) *
                            std::inner_product(y, y + dim, y, 0.0)));
 }
 
-double SOAPDistanceNormalized(size_t dim, double *x, double *y) {
+double SOAPDistanceNormalized(size_t dim, const double *x, const double *y) {
   return std::sqrt(2.0 - 2.0 * std::inner_product(x, x + dim, y, 0.0));
 }
 
@@ -176,7 +177,32 @@ void pammClustering::work() {
 
   auto distances = CalculateDistanceMatrixSOAP(data, nsamples, dim);
   size_t randomGeneratedFirstPoint = 1;
+  // no need for precalculated distances
   auto grid = createGrid(distances, randomGeneratedFirstPoint);
+  // TODO:voronoi if loading grid
+  //~MAYBE: export voronoi
+
+  // TODO: generate Neigh list between voronoi sets
+  // TODO: generate distance matrix between grid points
+  // TODO: Gabriel Graphs
+
+  //~MAYBE: global covariance on grid
+  // TODO: localization- Kernel Density Bandwidths + warning on grid dimension
+  // // TODO: localization with fractionofpoint or fractionofspread
+  // TODO: Bandwidths from localization
+  // //~->covariance->oracle shrinkage->invert Covariance
+
+  // TODO: Kernel Density Estimation
+  // TODO: Kernel Density Estimation Statical error
+  // //TODO: bootstrap
+  // //TODO: binomial-distribution ansatz to estimate the error
+
+  // TODO: Quick-Shift (also for bootstrap)
+  // TODO: Determine cluster Centers, merging the outliers
+  // completing the work
+
+  // file to save: bs dim grid pamm
+
   std::ofstream f("test_grid.soap");
   std::ofstream g("test_grid.dat");
   for (auto i = 0; i < gridDim; ++i) {

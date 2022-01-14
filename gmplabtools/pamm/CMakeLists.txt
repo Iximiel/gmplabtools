@@ -1,5 +1,12 @@
-cmake_minimum_required(VERSION 2.4)
-project(clusteringPP)
+cmake_minimum_required(VERSION 3.16)
+
+project(clusteringPP LANGUAGES CXX)
+
+# require C++14
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 
 #the code subdir
 add_subdirectory(src)

@@ -12,9 +12,10 @@ double __libpamm_MOD_mahalanobis(int, double *period, double *x, double *y,
 
 namespace libpamm {
 void clusteringMode();
-double SOAPDistance(size_t dim, double *x, double *y);
-double SOAPDistance(size_t dim, double *x, double *y, double xNorm,
-                    double yNorm);
+double SOAPDistance(size_t dim, const double *x, const double *y);
+double SOAPDistance(size_t dim, const double *x, const double *y,
+                    double xyNormProduct);
+double SOAPDistanceNormalized(size_t dim, const double *x, const double *y);
 
 class distanceMatrix {
   // This is a upper triangular matrix, without the diagonal
