@@ -49,10 +49,12 @@ public:
 
   void work();
   void testLoadData();
-  struct gridSimplified {
+  void doNormalizeDataset();
+  double distanceCalculator(size_t, size_t) const;
+  struct gridInfo {
     /// Contains the information for the grid
-    gridSimplified() = delete;
-    gridSimplified(size_t);
+    gridInfo() = delete;
+    gridInfo(size_t);
     std::vector<size_t> grid{};
     std::vector<size_t> ni{};
     std::vector<double> wi{};
@@ -62,9 +64,12 @@ private:
   size_t dim{0};
   size_t nsamples{0};
   size_t gridDim{0};
+
   std::vector<double> dataWeights{};
   double **data = nullptr; /// TODO: correct this
-  gridSimplified createGrid(distanceMatrix distances, size_t firstPoint = 0);
+  gridInfo createGrid(size_t firstPoint = 0);
+  bool initialized_{false};
+  bool dataSetNormalized_{false};
 };
 
 } // namespace libpamm

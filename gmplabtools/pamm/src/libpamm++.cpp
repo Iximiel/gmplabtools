@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <numeric>
 //#include <functional>
@@ -97,12 +98,11 @@ pammClustering::~pammClustering() {
   }
   delete[] data;
 }
-pammClustering::gridSimplified::gridSimplified(size_t gridDim)
+pammClustering::gridInfo::gridInfo(size_t gridDim)
     : grid(gridDim, 0), ni(gridDim, 0), wi(gridDim, 0.0) {}
 
-pammClustering::gridSimplified
-pammClustering::createGrid(distanceMatrix distances, size_t firstPoint) {
-  gridSimplified grid(gridDim);
+pammClustering::gridInfo pammClustering::createGrid(size_t firstPoint) {
+  gridInfo grid(gridDim);
 
   std::vector<double> Dmins(nsamples, std::numeric_limits<double>::max());
   std::vector<size_t> closestGridIndex(nsamples, 0);
@@ -123,7 +123,7 @@ pammClustering::createGrid(distanceMatrix distances, size_t firstPoint) {
         if (gridIndex == j) {
           continue;
         }
-        dij = distances(gridIndex, j);
+        dij = distanceCalculator(gridIndex, j);
         if (dij < Dmins[j]) {
           Dmins[j] = dij;
           // keep track of the Voronoi attribution
@@ -152,7 +152,7 @@ pammClustering::createGrid(distanceMatrix distances, size_t firstPoint) {
       if (gridIndex == j) {
         continue;
       }
-      dij = distances(gridIndex, j);
+      dij = distanceCalculator(gridIndex, j);
       if (dij < Dmins[j]) {
         Dmins[j] = dij;
         closestGridIndex[j] = gridDim - 1;
@@ -174,45 +174,54 @@ pammClustering::createGrid(distanceMatrix distances, size_t firstPoint) {
 }
 
 void pammClustering::work() {
-
-  auto distances = CalculateDistanceMatrixSOAP(data, nsamples, dim);
-  size_t randomGeneratedFirstPoint = 1;
-  // no need for precalculated distances
-  auto grid = createGrid(distances, randomGeneratedFirstPoint);
-  // TODO:voronoi if loading grid
-  //~MAYBE: export voronoi
-
-  // TODO: generate Neigh list between voronoi sets
-  // TODO: generate distance matrix between grid points
-  // TODO: Gabriel Graphs
-
-  //~MAYBE: global covariance on grid
-  // TODO: localization- Kernel Density Bandwidths + warning on grid dimension
-  // // TODO: localization with fractionofpoint or fractionofspread
-  // TODO: Bandwidths from localization
-  // //~->covariance->oracle shrinkage->invert Covariance
-
-  // TODO: Kernel Density Estimation
-  // TODO: Kernel Density Estimation Statical error
-  // //TODO: bootstrap
-  // //TODO: binomial-distribution ansatz to estimate the error
-
-  // TODO: Quick-Shift (also for bootstrap)
-  // TODO: Determine cluster Centers, merging the outliers
-  // completing the work
-
-  // file to save: bs dim grid pamm
-
-  std::ofstream f("test_grid.soap");
-  std::ofstream g("test_grid.dat");
-  for (auto i = 0; i < gridDim; ++i) {
-    for (auto j = 0; j < dim; ++j) {
-      f << ((j == 0) ? "" : " ") << data[grid.grid[i]][j];
+  if (initialized_) {
+    bool normalizeDataset = true;
+    if (normalizeDataset) {
+      doNormalizeDataset();
     }
-    f << '\n';
-    g << grid.grid[i] << '\n';
+    // auto distances = CalculateDistanceMatrixSOAP(data, nsamples, dim);
+    size_t randomGeneratedFirstPoint = 1;
+    // no need for precalculated distances
+    auto grid = createGrid(randomGeneratedFirstPoint);
+
+    // TODO:voronoi if loading grid
+    //~MAYBE: export voronoi
+
+    // TODO: generate Neigh list between voronoi sets
+    // TODO: generate distance matrix between grid points
+    // TODO: Gabriel Graphs
+
+    //~MAYBE: global covariance on grid
+    // TODO: localization- Kernel Density Bandwidths + warning on grid dimension
+    // // TODO: localization with fractionofpoint or fractionofspread
+    // TODO: Bandwidths from localization
+    // //~->covariance->oracle shrinkage->invert Covariance
+
+    // TODO: Kernel Density Estimation
+    // TODO: Kernel Density Estimation Statical error
+    // //TODO: bootstrap
+    // //TODO: binomial-distribution ansatz to estimate the error
+
+    // TODO: Quick-Shift (also for bootstrap)
+    // TODO: Determine cluster Centers, merging the outliers
+    // completing the work:
+    // TODO: Gaussian for each cluster and covariance
+    // Output?
+    // file to save: bs dim grid pamm
+
+    std::ofstream f("test_grid.soap");
+    std::ofstream g("test_grid.dat");
+    for (auto i = 0; i < gridDim; ++i) {
+      for (auto j = 0; j < dim; ++j) {
+        f << ((j == 0) ? "" : " ") << data[grid.grid[i]][j];
+      }
+      f << '\n';
+      g << grid.grid[i] << '\n';
+    }
+    f.close();
+  } else {
+    std::cerr << "Not initalized" << std::endl;
   }
-  f.close();
 }
 
 void pammClustering::testLoadData() {
@@ -232,6 +241,24 @@ void pammClustering::testLoadData() {
   }
   dataWeights = std::vector<double>(nsamples, 1.0);
   gridDim = 1000;
+  this->initialized_ = true;
+  this->dataSetNormalized_ = false;
 }
 
+void pammClustering::doNormalizeDataset() {
+  if (!dataSetNormalized_) {
+    dataSetNormalized_ = true;
+    for (auto i = 0; i < nsamples; ++i) {
+      double norm =
+          sqrt(std::inner_product(data[i], data[i] + dim, data[i], 0.0));
+      std::transform(data[i], data[i] + dim, data[i],
+                     [=](double x) -> double { return x / norm; });
+    }
+  }
+}
+double pammClustering::distanceCalculator(size_t i, size_t j) const {
+  // TODO: make the user able to choose the distance algorithm
+  // here we assume that the data is normalized:
+  return SOAPDistanceNormalized(dim, data[i], data[j]);
+}
 } // namespace libpamm
