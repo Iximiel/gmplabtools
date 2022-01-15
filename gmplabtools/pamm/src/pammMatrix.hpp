@@ -1,5 +1,6 @@
 #ifndef TRIANGULARMATRIX_HPP
 #define TRIANGULARMATRIX_HPP
+//#include <iostream>
 #include <vector>
 namespace libpamm {
   template <typename T>
@@ -115,5 +116,34 @@ namespace libpamm {
     T *data_{nullptr};
   };
 
+  template <typename T>
+  dynamicMatrix<T>
+  matMul (const dynamicMatrix<T> &A, const dynamicMatrix<T> &B) {
+    if (A.Columns () != B.Rows ()) {
+      throw "matMul: cannot multiply: the matrices are not mXn nXp";
+    }
+    dynamicMatrix<T> toReturn (A.Rows (), B.Columns ());
+    for (size_t I = 0; I < toReturn.Rows (); ++I) {
+      for (size_t J = 0; J < toReturn.Columns (); ++J) {
+        toReturn[I][J] = static_cast<T> (0);
+        for (size_t K = 0; K < A.Columns (); ++K) {
+          toReturn[I][J] += A[I][K] * B[K][J];
+        }
+        // std::cerr << toReturn[I][J] << ' ';
+      }
+      // std::cerr << '\n';
+    }
+    return toReturn;
+  }
+  template <typename T>
+  dynamicMatrix<T> Transpose (const dynamicMatrix<T> &A) {
+    dynamicMatrix<T> toReturn (A.Columns (), A.Rows ());
+    for (size_t I = 0; I < toReturn.Rows (); ++I) {
+      for (size_t J = 0; J < toReturn.Columns (); ++J) {
+        toReturn[I][J] = A[J][I];
+      }
+    }
+    return toReturn;
+  }
 } // namespace libpamm
 #endif // TRIANGULARMATRIX_HPP
