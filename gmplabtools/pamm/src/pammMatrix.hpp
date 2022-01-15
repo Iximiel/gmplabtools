@@ -1,5 +1,5 @@
-#ifndef TRIANGULARMATRIX_HPP
-#define TRIANGULARMATRIX_HPP
+#ifndef PAMMMATRIX_HPP
+#define PAMMMATRIX_HPP
 //#include <iostream>
 #include <numeric>
 #include <vector>
@@ -159,10 +159,8 @@ namespace libpamm {
     dynamicMatrix<T> toReturn (A.Rows (), BTransposed.Rows ());
     for (size_t I = 0; I < toReturn.Rows (); ++I) {
       for (size_t J = 0; J < toReturn.Columns (); ++J) {
-        for (size_t K = 0; K < A.Columns (); ++K) {
-          toReturn[I][J] =
-            std::inner_product (A[I], A[I] + A.Columns (), BTransposed[J], T{});
-        }
+        toReturn[I][J] =
+          std::inner_product (A[I], A[I] + A.Columns (), BTransposed[J], T{});
         // std::cerr << toReturn[I][J] << ' ';
       }
       // std::cerr << '\n';
@@ -170,4 +168,4 @@ namespace libpamm {
     return toReturn;
   }
 } // namespace libpamm
-#endif // TRIANGULARMATRIX_HPP
+#endif // PAMMMATRIX_HPP
