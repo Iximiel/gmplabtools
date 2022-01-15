@@ -1,6 +1,7 @@
 #ifndef TRIANGULARMATRIX_HPP
 #define TRIANGULARMATRIX_HPP
 //#include <iostream>
+#include <numeric>
 #include <vector>
 namespace libpamm {
   template <typename T>
@@ -125,7 +126,7 @@ namespace libpamm {
     dynamicMatrix<T> toReturn (A.Rows (), B.Columns ());
     for (size_t I = 0; I < toReturn.Rows (); ++I) {
       for (size_t J = 0; J < toReturn.Columns (); ++J) {
-        toReturn[I][J] = static_cast<T> (0);
+        toReturn[I][J] = T{};
         for (size_t K = 0; K < A.Columns (); ++K) {
           toReturn[I][J] += A[I][K] * B[K][J];
         }
@@ -142,6 +143,29 @@ namespace libpamm {
       for (size_t J = 0; J < toReturn.Columns (); ++J) {
         toReturn[I][J] = A[J][I];
       }
+    }
+    return toReturn;
+  }
+
+  template <typename T>
+  dynamicMatrix<T>
+  matMulforT (const dynamicMatrix<T> &A, const dynamicMatrix<T> &BTransposed) {
+    /// This special multiplication is a row*column multiplication with the
+    /// transpose os B, this function takes advantage of the memory alignment to
+    /// boost the speed ot the multiplication
+    if (A.Columns () != BTransposed.Columns ()) {
+      throw "matMul: cannot multiply: the matrices are not mXn nXp";
+    }
+    dynamicMatrix<T> toReturn (A.Rows (), BTransposed.Rows ());
+    for (size_t I = 0; I < toReturn.Rows (); ++I) {
+      for (size_t J = 0; J < toReturn.Columns (); ++J) {
+        for (size_t K = 0; K < A.Columns (); ++K) {
+          toReturn[I][J] =
+            std::inner_product (A[I], A[I] + A.Columns (), BTransposed[J], T{});
+        }
+        // std::cerr << toReturn[I][J] << ' ';
+      }
+      // std::cerr << '\n';
     }
     return toReturn;
   }
