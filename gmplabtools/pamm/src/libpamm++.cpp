@@ -261,15 +261,18 @@ namespace libpamm {
       }
     }
   }
-
+  using dynamicMatrices::matMul;
+  using dynamicMatrices::Transpose;
   void pammClustering::CalculateCovarianceMatrix (gridInfo &grid) const {
+    using dynamicMatrices::matMul;
+    using dynamicMatrices::Transpose;
     // constexpr double wnorm = 1.0;
     // assuming all the weight==1
     // CALL covariance(D,period,ngrid,normwj,wi,y,Q)
     //     covariance(D,period,N    ,wnorm,w,x,Q)
     std::vector<double> means (dim);
-    std::vector<std::vector<double>> deltafromMeans (
-      grid.grid.size (), std::vector<double> (dim));
+    Matrix deltafromMeans (grid.grid.size (), dim);
+    // dynamicMatrix<double>deltafromMeansWeighted (grid.grid.size (),dim);
     for (auto D = 0; D < dim; ++D) {
       means[D] = 0.0;
       for (const auto gridIndex : grid.grid) {
@@ -278,8 +281,12 @@ namespace libpamm {
       means[D] /= static_cast<double> (grid.grid.size ());
       for (const auto gridIndex : grid.grid) {
         deltafromMeans[gridIndex][D] = data[gridIndex][D] - means[D];
+        // deltafromMeansWeighted[gridIndex][D]=deltafromMeans[gridIndex][D]*w[gridIndex];
       }
     }
+    auto deltafromMeansT = Transpose (deltafromMeans /*Weighted*/);
+    Matrix covariance = matMul (deltafromMeans, deltafromMeansT);
+    // covariance /= (1.0 -) // Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))
   }
 
 } // namespace libpamm

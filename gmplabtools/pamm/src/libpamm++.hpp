@@ -8,7 +8,8 @@ double __libpamm_MOD_mahalanobis(int, double *period, double *x, double *y,
 }
 #endif
 */
-#include "pammMatrix.hpp"
+#include "dynamicMatrices/dynamicMatrices.hpp"
+//#include "pammMatrix.hpp"
 #include <vector>
 namespace libpamm {
   void clusteringMode ();
@@ -16,7 +17,8 @@ namespace libpamm {
   double SOAPDistance (
     size_t dim, const double *x, const double *y, double xyNormProduct);
   double SOAPDistanceNormalized (size_t dim, const double *x, const double *y);
-  using distanceMatrix = triangularMatrix<double>;
+  using distanceMatrix = dynamicMatrices::triangularMatrix<double>;
+  using Matrix = dynamicMatrices::dynamicMatrix<double>;
   // using NNMatrix = triangularMatrix<size_t>;
 
   class pammClustering {

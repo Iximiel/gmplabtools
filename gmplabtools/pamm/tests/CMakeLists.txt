@@ -21,7 +21,7 @@ FetchContent_Declare(Catch2                              # name of the content
 FetchContent_MakeAvailable(Catch2)
 
 # testing binary
-add_executable(pamm_test test.cxx MatricesTests.cpp)
+add_executable(pamm_test test.cxx)
 target_link_libraries(pamm_test PRIVATE base Catch2::Catch2)
 target_include_directories(pamm_test
   PUBLIC

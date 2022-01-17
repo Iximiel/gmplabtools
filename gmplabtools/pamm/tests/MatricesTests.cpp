@@ -127,6 +127,7 @@ TEST_CASE (
   auto transposeMul = libpamm::matMulforT (Mat5x2, transposeMat2x5);
   REQUIRE (standardMul.Rows () == transposeMul.Rows ());
   REQUIRE (standardMul.Columns () == transposeMul.Columns ());
+
   for (int i = 0; i < standardMul.Rows (); ++i) {
     for (int j = 0; j < standardMul.Columns (); ++j) {
       REQUIRE (standardMul[i][j] == transposeMul[i][j]);

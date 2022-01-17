@@ -2,16 +2,55 @@ cmake_minimum_required(VERSION 3.16)
 
 project(clusteringPPExec LANGUAGES CXX)
 
+
 # require C++14
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+IF(${OPT_DEBUGWARNINGS})
+    if(MSVC)
+      add_compile_options(/W4 /WX)
+    else()
+      add_compile_options(
+          -Wall
+          -Wextra
+          -Wshadow
+          -Wnon-virtual-dtor
+          -Wold-style-cast
+          -Wcast-align
+          -Wunused
+          -Woverloaded-virtual
+          -Wpedantic
+          -Wconversion
+          -Wsign-conversion
+          -Wnull-dereference
+          -Wdouble-promotion
+          -Wformat=2
+          -Wduplicated-cond
+          -Wduplicated-branches
+          -Wlogical-op
+          -Wuseless-cast
+          #-Wlifetime
+          )
+    endif()
+endif()
+
+include(FetchContent)
+
+FetchContent_Declare(DynamicMatrices
+    GIT_REPOSITORY https://github.com/Iximiel/dynamicMatrices.git
+    GIT_TAG V0.1
+)
+# make available
+FetchContent_MakeAvailable(DynamicMatrices)
 
 add_library(base libpamm++.cpp)
+target_link_libraries(base DynamicMatrices::DynamicMatrices)
 target_include_directories(base
   PUBLIC
-    ${CMAKE_CURRENT_LIST_DIR}
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
+  "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
   )
 
 #include(FetchContent)
