@@ -40,7 +40,8 @@ include(FetchContent)
 
 FetchContent_Declare(DynamicMatrices
     GIT_REPOSITORY https://github.com/Iximiel/dynamicMatrices.git
-    GIT_TAG V0.1
+    #GIT_TAG V0.1
+    GIT_TAG 733da9934159b8a191aefce6eb6cdcd76fabc819
 )
 # make available
 FetchContent_MakeAvailable(DynamicMatrices)

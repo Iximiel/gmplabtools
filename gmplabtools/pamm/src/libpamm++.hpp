@@ -21,20 +21,20 @@ namespace libpamm {
   using Matrix = dynamicMatrices::dynamicMatrix<double>;
   // using NNMatrix = triangularMatrix<size_t>;
 
-  class pammClustering {
+  class pammClustering final {
   public:
     pammClustering ();
     pammClustering (const pammClustering &) = delete;
     pammClustering (pammClustering &&) = delete;
-    virtual ~pammClustering ();
+    ~pammClustering ();
 
     struct gridInfo {
       /// Contains the information for the grid
       gridInfo () = delete;
-      gridInfo (size_t);
-      std::vector<size_t> grid{};
+      gridInfo (size_t, size_t);
+      Matrix grid{0, 0};
       // std::vector<size_t> NofSamples{};// ni is .size of samplesIndexes
-      // std::vector<double> WeightOfSamples{};         // wi
+      std::vector<double> WeightOfSamples{};         // wi
       std::vector<size_t> voronoiAssociationIndex{}; // ineigh: closest sample
       std::vector<size_t> gridNearestNeighbours{};
       std::vector<std::vector<size_t>> samplesIndexes{};
@@ -46,15 +46,16 @@ namespace libpamm {
     void doNormalizeDataset ();
     double distanceCalculator (size_t, size_t) const;
     void CalculateGridDistanceMatrix (gridInfo &) const;
-    void CalculateCovarianceMatrix (gridInfo &) const;
+    Matrix
+    CalculateCovarianceMatrix (gridInfo &, const double totalWeight) const;
 
   private:
     size_t dim{0};
     size_t nsamples{0};
     size_t gridDim{0};
 
-    // std::vector<double> dataWeights{};
-    double **data = nullptr; /// TODO: correct this
+    std::vector<double> dataWeights{};
+    Matrix data{0, 0}; /// TODO: correct this
     gridInfo createGrid (size_t firstPoint = 0) const;
     bool initialized_{false};
     bool dataSetNormalized_{false};

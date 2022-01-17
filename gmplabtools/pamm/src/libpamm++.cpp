@@ -50,16 +50,18 @@ namespace libpamm {
   pammClustering::pammClustering () {}
 
   pammClustering::~pammClustering () {
+    /*
     if (nsamples > 0) {
       delete[] data[0];
     }
     delete[] data;
+    */
   }
 
-  pammClustering::gridInfo::gridInfo (size_t gridDim)
-    : grid (gridDim, 0),
+  pammClustering::gridInfo::gridInfo (size_t gridDim, size_t dataDim)
+    : grid (gridDim, dataDim),
       // NofSamples (gridDim, 0),
-      // WeightOfSamples (gridDim, 0.0),
+      WeightOfSamples (gridDim, 0.0),
       voronoiAssociationIndex (gridDim, 0),
       gridNearestNeighbours (gridDim, 0),
       samplesIndexes (gridDim, std::vector<size_t> (0)),
@@ -67,12 +69,17 @@ namespace libpamm {
 
   pammClustering::gridInfo
   pammClustering::createGrid (size_t firstPoint) const {
-    gridInfo grid (gridDim);
+    gridInfo grid (gridDim, dim);
 
     std::vector<double> Dmins (nsamples, std::numeric_limits<double>::max ());
     std::vector<size_t> closestGridIndex (nsamples, 0);
+    std::vector<size_t> gridIndexes (gridDim, 0);
+    auto copyPoint = [this] (double *gridPoint, double *dataPoint) {
+      std::copy (gridPoint, gridPoint + dim, dataPoint);
+    };
     size_t jmax = 0;
-    grid.grid[0] = firstPoint;
+    gridIndexes[0] = firstPoint;
+    copyPoint (grid.grid[0], data[firstPoint]);
     Dmins[firstPoint] = 0.0;
     closestGridIndex[firstPoint] = 0;
     double dij;
@@ -82,7 +89,7 @@ namespace libpamm {
         grid.samplesIndexes[i].reserve (nsamples / gridDim);
         dMax = 0.0;
         dNeighMin = std::numeric_limits<double>::max ();
-        auto gridIndex = grid.grid[i];
+        size_t gridIndex = gridIndexes[i];
         // find the farthest point from gridIndex
         for (auto j = 0U; j < nsamples; ++j) {
           if (gridIndex == j) {
@@ -104,15 +111,16 @@ namespace libpamm {
             grid.voronoiAssociationIndex[i] = j;
           }
         }
-        grid.grid[i + 1] = jmax;
+        copyPoint (grid.grid[i + 1], data[jmax]);
+        gridIndexes[i + 1] = jmax;
         Dmins[jmax] = 0.0;
         closestGridIndex[jmax] = i + 1;
       }
     }
     // completes the voronoi attribuition for the last point in the grid
     {
-      auto gridIndex = grid.grid[gridDim - 1];
-      grid.samplesIndexes[gridIndex].reserve (nsamples / gridDim);
+      auto gridIndex = gridIndexes[gridDim - 1];
+      grid.samplesIndexes[gridDim - 1].reserve (nsamples / gridDim);
       auto dNeighMin = std::numeric_limits<double>::max ();
       for (auto j = 0U; j < nsamples; ++j) {
         if (gridIndex == j) {
@@ -133,7 +141,7 @@ namespace libpamm {
     // Number of points in each voronoi polyhedra
 
     for (auto j = 0U; j < nsamples; ++j) {
-      // grid.WeightOfSamples[closestGridIndex[j]] += dataWeights[j];
+      grid.WeightOfSamples[closestGridIndex[j]] += dataWeights[j];
       // TODO: push_back may result in poor performances: need to improve
       grid.samplesIndexes[closestGridIndex[j]].push_back (j);
     }
@@ -148,16 +156,26 @@ namespace libpamm {
       }
       // auto distances = CalculateDistanceMatrixSOAP(data, nsamples, dim);
       size_t randomGeneratedFirstPoint = 1;
+      double totalWeight =
+        std::accumulate (dataWeights.begin (), dataWeights.end (), 0.0);
       // no need for precalculated distances
       auto grid = createGrid (randomGeneratedFirstPoint);
+      // this normalizes the gridweights
+      for (auto &weight : grid.WeightOfSamples) {
+        weight /= totalWeight;
+      }
+      totalWeight = 1.0;
+      // if(loadGrid){
       // auto grid = loadGrid();
       // TODO:voronoi if loading grid
+      // }
       //~MAYBE: export voronoi
 
       // DONE: generate Neigh list between voronoi sets:moved increateGrid
       // DONE: generate distance matrix between grid points #445
       // TODO: can we do this while generating the grid?
       CalculateGridDistanceMatrix (grid);
+      Matrix covariance = CalculateCovarianceMatrix (grid, totalWeight);
       // not using weight, yet:
       double weightAccululation = double (nsamples);
       //~MAYBE: Gabriel Graphs //gs is gabriel clusterign flag in pamm #473
@@ -190,7 +208,7 @@ namespace libpamm {
       std::ofstream g ("test_grid.dat");
       for (auto i = 0; i < gridDim; ++i) {
         for (auto j = 0; j < dim; ++j) {
-          f << ((j == 0) ? "" : " ") << data[grid.grid[i]][j];
+          f << ((j == 0) ? "" : " ") << grid.grid[i][j];
         }
         f << '\n';
         g << grid.grid[i];
@@ -211,17 +229,14 @@ namespace libpamm {
     dim = 324;
     nsamples = 30900;
     // nsamples = 30;
-    data = new double *[nsamples];
-    data[0] = new double[nsamples * dim];
+    data = Matrix (nsamples, dim);
+
     for (auto i = 0; i < nsamples; ++i) {
-      if (i > 0) {
-        data[i] = data[0] + i * dim;
-      }
       for (auto j = 0; j < dim; ++j) {
         f >> data[i][j];
       }
     }
-    // dataWeights = std::vector<double> (nsamples, 1.0);
+    dataWeights = std::vector<double> (nsamples, 1.0);
     gridDim = 1000;
     this->initialized_ = true;
     this->dataSetNormalized_ = false;
@@ -247,12 +262,10 @@ namespace libpamm {
 
   void pammClustering::CalculateGridDistanceMatrix (gridInfo &grid) const {
     double d;
-    for (auto i = 0; i < grid.grid.size (); ++i) {
-      auto idxI = grid.grid[i];
+    for (auto i = 0; i < grid.grid.Rows (); ++i) {
       auto NNdist = std::numeric_limits<double>::max ();
-      for (auto j = i + 1; j < grid.grid.size (); ++j) {
-        auto idxJ = grid.grid[j];
-        d = distanceCalculator (idxI, idxJ);
+      for (auto j = i + 1; j < grid.grid.Rows (); ++j) {
+        d = SOAPDistanceNormalized (dim, grid.grid[i], grid.grid[j]);
         grid.gridDistances (i, j) = d;
         if (d < NNdist) {
           grid.gridNearestNeighbours[i] = j;
@@ -263,30 +276,43 @@ namespace libpamm {
   }
   using dynamicMatrices::matMul;
   using dynamicMatrices::Transpose;
-  void pammClustering::CalculateCovarianceMatrix (gridInfo &grid) const {
+  Matrix pammClustering::CalculateCovarianceMatrix (
+    gridInfo &grid, const double totalWeight) const {
     using dynamicMatrices::matMul;
     using dynamicMatrices::Transpose;
-    // constexpr double wnorm = 1.0;
-    // assuming all the weight==1
     // CALL covariance(D,period,ngrid,normwj,wi,y,Q)
     //     covariance(D,period,N    ,wnorm,w,x,Q)
     std::vector<double> means (dim);
-    Matrix deltafromMeans (grid.grid.size (), dim);
-    // dynamicMatrix<double>deltafromMeansWeighted (grid.grid.size (),dim);
+    Matrix deltafromMeans (grid.grid.Rows (), dim);
+    Matrix deltafromMeansWeighted (grid.grid.Rows (), dim);
     for (auto D = 0; D < dim; ++D) {
       means[D] = 0.0;
-      for (const auto gridIndex : grid.grid) {
-        means[D] += data[gridIndex][D];
+      // weighted mean:
+      for (auto gID = 0; gID < grid.grid.Rows (); ++gID) {
+        means[D] += grid.grid[gID][D] * grid.WeightOfSamples[gID];
       }
-      means[D] /= static_cast<double> (grid.grid.size ());
-      for (const auto gridIndex : grid.grid) {
-        deltafromMeans[gridIndex][D] = data[gridIndex][D] - means[D];
-        // deltafromMeansWeighted[gridIndex][D]=deltafromMeans[gridIndex][D]*w[gridIndex];
+      means[D] /= totalWeight;
+      for (auto gID = 0; gID < grid.grid.Rows (); ++gID) {
+        deltafromMeans[gID][D] = grid.grid[gID][D] - means[D];
+        deltafromMeansWeighted[gID][D] =
+          deltafromMeans[gID][D] * grid.WeightOfSamples[gID] / totalWeight;
       }
     }
-    auto deltafromMeansT = Transpose (deltafromMeans /*Weighted*/);
-    Matrix covariance = matMul (deltafromMeans, deltafromMeansT);
-    // covariance /= (1.0 -) // Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))
+    double wSumSquared = std::accumulate (
+      grid.WeightOfSamples.begin (), grid.WeightOfSamples.end (), 0.0,
+      [=] (double x, double y) {
+        y /= totalWeight;
+        return x + y * y;
+      });
+
+    auto deltafromMeansWT = Transpose (deltafromMeansWeighted);
+    Matrix covariance = matMul (deltafromMeansWT, deltafromMeans);
+    /*
+    std::cerr << covariance.Rows () << " " << covariance.Columns () << " "
+              << wSumSquared << std::endl;
+    */
+    covariance *= (1.0 - wSumSquared);
+    return covariance;
   }
 
 } // namespace libpamm
