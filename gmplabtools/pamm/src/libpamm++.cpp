@@ -61,16 +61,16 @@ namespace libpamm {
   pammClustering::gridInfo::gridInfo (size_t gridDim, size_t dataDim)
     : grid (gridDim, dataDim),
       // NofSamples (gridDim, 0),
-      WeightOfSamples (gridDim, 0.0),
+      VoronoiWeights (gridDim, 0.0),
       voronoiAssociationIndex (gridDim, 0),
       gridNearestNeighbours (gridDim, 0),
       samplesIndexes (gridDim, std::vector<size_t> (0)),
       gridDistances (gridDim) {}
 
+  size_t pammClustering::gridInfo::size () const { return grid.Rows (); }
   pammClustering::gridInfo
   pammClustering::createGrid (size_t firstPoint) const {
     gridInfo grid (gridDim, dim);
-
     std::vector<double> Dmins (nsamples, std::numeric_limits<double>::max ());
     std::vector<size_t> closestGridIndex (nsamples, 0);
     std::vector<size_t> gridIndexes (gridDim, 0);
@@ -141,7 +141,7 @@ namespace libpamm {
     // Number of points in each voronoi polyhedra
 
     for (auto j = 0U; j < nsamples; ++j) {
-      grid.WeightOfSamples[closestGridIndex[j]] += dataWeights[j];
+      grid.VoronoiWeights[closestGridIndex[j]] += dataWeights[j];
       // TODO: push_back may result in poor performances: need to improve
       grid.samplesIndexes[closestGridIndex[j]].push_back (j);
     }
@@ -161,7 +161,7 @@ namespace libpamm {
       // no need for precalculated distances
       auto grid = createGrid (randomGeneratedFirstPoint);
       // this normalizes the gridweights
-      for (auto &weight : grid.WeightOfSamples) {
+      for (auto &weight : grid.VoronoiWeights) {
         weight /= totalWeight;
       }
       totalWeight = 1.0;
@@ -174,14 +174,13 @@ namespace libpamm {
       // DONE: generate Neigh list between voronoi sets:moved increateGrid
       // DONE: generate distance matrix between grid points #445
       // TODO: can we do this while generating the grid?
-      CalculateGridDistanceMatrix (grid);
+      GenerateGridDistanceMatrix (grid);
       Matrix covariance = CalculateCovarianceMatrix (grid, totalWeight);
-      // not using weight, yet:
-      double weightAccululation = double (nsamples);
-      //~MAYBE: Gabriel Graphs //gs is gabriel clusterign flag in pamm #473
 
-      //~MAYBE: global covariance on grid
-      // normwj:accumulator for wj, wj is the weight of the samples
+      double weightAccumulation = double (nsamples);
+      //~MAYBE: Gabriel Graphs //gs is gabriel clusterign flag in pamm #473
+      Matrix covariance = CalculateCovarianceMatrix (grid, totalWeight);
+      bandwidthEstimation (grid, covariance, weightAccumulation);
       // TODO: localization weights #527
       // CALL
       // localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
@@ -260,7 +259,7 @@ namespace libpamm {
     return SOAPDistanceNormalized (dim, data[i], data[j]);
   }
 
-  void pammClustering::CalculateGridDistanceMatrix (gridInfo &grid) const {
+  void pammClustering::GenerateGridDistanceMatrix (gridInfo &grid) const {
     double d;
     for (auto i = 0; i < grid.grid.Rows (); ++i) {
       auto NNdist = std::numeric_limits<double>::max ();
@@ -274,8 +273,23 @@ namespace libpamm {
       }
     }
   }
-  using dynamicMatrices::matMul;
-  using dynamicMatrices::Transpose;
+  /*
+    void pammClustering::GenerateGridNeighbourList (gridInfo &grid) const {
+      double d;
+      //#row 1960
+      for (auto i = 0; i < grid.grid.Rows (); ++i) {
+        auto NNdist = std::numeric_limits<double>::max ();
+        for (auto j = i + 1; j < grid.grid.Rows (); ++j) {
+          d = SOAPDistanceNormalized (dim, grid.grid[i], grid.grid[j]);
+          grid.gridDistances (i, j) = d;
+          if (d < NNdist) {
+            grid.gridNearestNeighbours[i] = j;
+            NNdist = d;
+          }
+        }
+      }
+    }
+  */
   Matrix pammClustering::CalculateCovarianceMatrix (
     gridInfo &grid, const double totalWeight) const {
     using dynamicMatrices::matMul;
@@ -289,17 +303,17 @@ namespace libpamm {
       means[D] = 0.0;
       // weighted mean:
       for (auto gID = 0; gID < grid.grid.Rows (); ++gID) {
-        means[D] += grid.grid[gID][D] * grid.WeightOfSamples[gID];
+        means[D] += grid.grid[gID][D] * grid.VoronoiWeights[gID];
       }
       means[D] /= totalWeight;
       for (auto gID = 0; gID < grid.grid.Rows (); ++gID) {
         deltafromMeans[gID][D] = grid.grid[gID][D] - means[D];
         deltafromMeansWeighted[gID][D] =
-          deltafromMeans[gID][D] * grid.WeightOfSamples[gID] / totalWeight;
+          deltafromMeans[gID][D] * grid.VoronoiWeights[gID] / totalWeight;
       }
     }
     double wSumSquared = std::accumulate (
-      grid.WeightOfSamples.begin (), grid.WeightOfSamples.end (), 0.0,
+      grid.VoronoiWeights.begin (), grid.VoronoiWeights.end (), 0.0,
       [=] (double x, double y) {
         y /= totalWeight;
         return x + y * y;
@@ -315,4 +329,81 @@ namespace libpamm {
     return covariance;
   }
 
+  void pammClustering::bandwidthEstimation (
+    const gridInfo &grid, const Matrix &covariance, const double totalWeight) {
+    std::vector<double> localWeight (grid.size ());
+
+    double delta = totalWeight / static_cast<double> (nsamples);
+    tune = 0.0;
+    for (auto D = 0; D < dim; ++D) {
+      tune += covariance[D][D];
+    }
+    std::vector<double> sigmaSQ (grid.size (), tune);
+    bool useFractionOfPoints = true;
+    for (auto GI = 0; GI < grid.size (); ++GI) {
+      double localWeightSum = estimateGaussianLocalization (
+        grid, grid.grid[GI], sigmaSQ[GI], localWeight.data ());
+      // two strategies:
+      if (useFractionOfPoints) {
+        fractionOfPointsLocalization (
+          grid, GI, delta, localWeightSum, sigmaSQ[GI], localWeight.data ());
+      } else {
+        fractionOfSpreadLocalization (grid);
+      }
+    }
+  }
+  /*
+      Matrix matrixOfDistances (const Matrix &points, const double *point) {
+        Matrix deltas (points.Rows (), points.Columns ());
+        for (auto R = 0; R < points.Rows (); ++R) {
+          for (auto D = 0; D < points.Columns (); ++D) {
+            deltas (R, D) = points (R, D) - point[D];
+          }
+        }
+        return deltas;
+      }*/
+  double pammClustering::estimateGaussianLocalization (
+    const gridInfo &grid,
+    const double *point,
+    double sigmaSQ,
+    double *outweights) const {
+    // localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
+    // SUBROUTINE localization(D,period,N,s2,x,w,y,wl,num)
+    double delta, dSum;
+    for (auto gI = 0; gI < grid.size (); ++gI) {
+      dSum = 0;
+      for (auto D = 0; D < grid.grid.Columns (); ++D) {
+        delta = grid.grid[gI][D] - point[D];
+        dSum += delta * delta;
+      }
+      // estimate weights for localization as product from
+      // spherical gaussian weights and weights in voronoi
+      outweights[gI] = exp (-0.5 / sigmaSQ * dSum) * grid.VoronoiWeights[gI];
+    }
+    double localWeightSum =
+      std::accumulate (outweights, outweights + grid.size (), 0.0);
+    return localWeightSum;
+  }
+
+  void pammClustering::fractionOfPointsLocalization (
+    const gridInfo &grid,
+    const size_t gID,
+    const double delta,
+    double &weight,
+    double &sigmaSQ,
+    double *localWeights) {
+    double lim = fractionOfPointsVal;
+    if (fractionOfPointsVal < grid.VoronoiWeights[gID]) {
+      lim = weight + delta;
+      std::cerr << " Warning: localization smaller than voronoi, increase grid "
+                   "size (meanwhile adjusted localization)!"
+                << std::endl;
+    }
+    while (weight < lim) {
+      sigmaSQ += tune;
+      weight = estimateGaussianLocalization (
+        grid, grid.grid[gID], sigmaSQ, localWeights);
+    }
+  }
+  void pammClustering::fractionOfSpreadLocalization (const gridInfo &) {}
 } // namespace libpamm
