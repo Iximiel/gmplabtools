@@ -8,17 +8,19 @@ double __libpamm_MOD_mahalanobis(int, double *period, double *x, double *y,
 }
 #endif
 */
-#include "dynamicMatrices/dynamicMatrices.hpp"
-//#include "pammMatrix.hpp"
+#include <Eigen/Core>
+#include <dynamicMatrices/dynamicMatrices.hpp>
 #include <vector>
+
 namespace libpamm {
   void clusteringMode ();
   double SOAPDistance (size_t dim, const double *x, const double *y);
+
   double SOAPDistance (
     size_t dim, const double *x, const double *y, double xyNormProduct);
   double SOAPDistanceNormalized (size_t dim, const double *x, const double *y);
   using distanceMatrix = dynamicMatrices::triangularMatrix<double>;
-  using Matrix = dynamicMatrices::dynamicMatrix<double>;
+  using Matrix = Eigen::MatrixXd;
   // using NNMatrix = triangularMatrix<size_t>;
 
   class pammClustering final {
@@ -45,15 +47,24 @@ namespace libpamm {
     void work ();
     void testLoadData ();
     void doNormalizeDataset ();
-    double distanceCalculator (size_t, size_t) const;
+    double distanceCalculator (const size_t, const size_t) const;
+
+    double distanceCalculator (const double *, const double *) const;
     void GenerateGridDistanceMatrix (gridInfo &) const;
     double estimateGaussianLocalization (
       const gridInfo &,
       const double *point,
-      double sigma2,
+      const double sigma2,
       double *outweights) const;
-    Matrix
-    CalculateCovarianceMatrix (gridInfo &, const double totalWeight) const;
+    double estimateGaussianLocalization (
+      const gridInfo &,
+      const size_t gridPoint,
+      const double sigma2,
+      double *outweights) const;
+    Matrix CalculateCovarianceMatrix (
+      const gridInfo &,
+      const std::vector<double> &weights,
+      const double totalWeight) const;
     void bandwidthEstimation (const gridInfo &, const Matrix &, const double);
     void fractionOfPointsLocalization (
       const gridInfo &grid,
@@ -62,7 +73,13 @@ namespace libpamm {
       double &weight,
       double &sigmaSQ,
       double *localWeights);
-    void fractionOfSpreadLocalization (const gridInfo &);
+    void fractionOfSpreadLocalization (
+      const gridInfo &grid,
+      const size_t gID,
+      const double delta,
+      double &weight,
+      double &sigmaSQ,
+      double *localWeights);
 
   private:
     size_t dim{0};
