@@ -1,4 +1,5 @@
 #include "libpamm++.hpp"
+//#include "gcem.hpp"
 #include <Eigen/Eigenvalues>
 #include <Eigen/Geometry>
 #include <algorithm>
@@ -10,7 +11,8 @@
 #include <numeric>
 //#include <functional>
 namespace libpamm {
-
+  // constexpr double log2PI = gcem::log (M_2_PI);
+  const double log2PI = std::log (M_2_PI);
   Matrix oracleShrinkage (Matrix m, double dimParameter) {
     const size_t D = m.rows ();
 
@@ -411,8 +413,12 @@ namespace libpamm {
   void pammClustering::bandwidthEstimation (
     const gridInfo &grid, const Matrix &covariance, const double totalWeight) {
     std::vector<double> localWeights (grid.size ());
-    std::vector<double> LocalDimensionality (grid.size ());
-
+    std::vector<double> logDetHi (grid.size ());
+    std::vector<double> qscut2 (grid.size ());
+    std::vector<double> normkernel (grid.size ());
+    // std::vector<double> LocalDimensionality (grid.size ());
+    Eigen::VectorXd LocalDimensionality (grid.size ());
+    std::vector<Matrix> HiInvStore (grid.size ());
     double delta = totalWeight / static_cast<double> (nsamples);
     tune = 0.0;
     for (auto D = 0; D < dim; ++D) {
@@ -442,10 +448,22 @@ namespace libpamm {
       LocalDimensionality[GI] = RoyVetterliDimensionality (localCovariance);
       // oracle shrinkage of covariance matrix
       localCovariance = oracleShrinkage (localCovariance, nlocal);
-      // auto inverseLocalCovariance = localCovariance.inverse ();
+      auto inverseLocalCovariance = localCovariance.inverse ();
 
-      // inverse local covariance matrix and store it
-      //  CALL invmatrix (D, Qi, Qiinv)
+      // stimate bandwidth from normal (Scott's) reference rule
+      auto Hi = pow (
+                  4.0 / (LocalDimensionality[GI] + 2.0),
+                  2.0 / (LocalDimensionality[GI] + 4.0)) *
+                pow (nlocal, -2.0 / (LocalDimensionality[GI] + 4.0)) *
+                inverseLocalCovariance;
+      HiInvStore[GI] = Hi.inverse ();
+      // estimate logarithmic determinant of local BW H's
+      logDetHi[GI] = std::log (Hi.determinant ());
+      // estimate the logarithmic normalization constants
+      normkernel[GI] = static_cast<double> (dim) * log2PI + logDetHi[GI];
+      // adaptive QS cutoff from local covariance
+      qscut2[GI] = localCovariance.trace ();
+      qscut2[GI] *= qscut2[GI];
     }
   }
   /*

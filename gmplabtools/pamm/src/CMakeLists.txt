@@ -38,6 +38,12 @@ endif()
 
 include(FetchContent)
 
+#FetchContent_Declare(gcem
+#    GIT_REPOSITORY https://github.com/kthohr/gcem.git
+#    GIT_TAG v1.13.1
+#)
+#FetchContent_MakeAvailable(gcem)
+
 FetchContent_Declare(DynamicMatrices
     GIT_REPOSITORY https://github.com/Iximiel/dynamicMatrices.git
     #GIT_TAG V0.1
