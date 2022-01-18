@@ -12,26 +12,29 @@
 namespace libpamm {
 
   Matrix oracleShrinkage (Matrix m, double dimParameter) {
-    size_t D = m.rows ();
+    const size_t D = m.rows ();
 
     double trQ = m.trace ();
-    double tr2Q = trQ * trQ;
-    double trQ2 = 0.0;
-    for (size_t i = 0; i < D; ++D) {
-      trQ2 += m (i, i) * m (i, i);
-    }
+    const double tr2Q = trQ * trQ;
+    const double trQ2 = [=] (double t) {
+      for (size_t i = 0; i < D; ++i) {
+        t += m (i, i) * m (i, i);
+      }
+      return t;
+    }(0.0);
 
     // apply oracle approximating shrinkage algorithm on m
-    double phi = ((1.0 - 2.0 / static_cast<double> (D)) * trQ2 + tr2Q) /
-                 ((dimParameter + 1.0 - 2.0 / static_cast<double> (D)) * trQ2 -
-                  tr2Q / static_cast<double> (D));
+    const double phi =
+      ((1.0 - 2.0 / static_cast<double> (D)) * trQ2 + tr2Q) /
+      ((dimParameter + 1.0 - 2.0 / static_cast<double> (D)) * trQ2 -
+       tr2Q / static_cast<double> (D));
 
-    double rho = std::min (1.0, phi);
+    const double rho = std::min (1.0, phi);
 
     // regularized local covariance matrix for grid point
     m *= (1.0 - rho);
     trQ = trQ / static_cast<double> (D);
-    for (size_t i = 0; i < D; ++D) {
+    for (size_t i = 0; i < D; ++i) {
       m (i, i) += rho * trQ;
     }
     return m;
@@ -40,7 +43,13 @@ namespace libpamm {
   double RoyVetterliDimensionality (const Matrix &square) {
     assert (square.rows () == square.cols ());
     size_t D = square.rows ();
-    auto eigenvalues = square.eigenvalues ();
+    auto eigenvalues = [] (auto t) {
+      std::vector<double> x (t.size ());
+      for (size_t i = 0; i < t.size (); ++i) {
+        x[i] = t[i].real ();
+      }
+      return x;
+    }(square.eigenvalues ());
     double eigenAccumulation =
       std::accumulate (eigenvalues.begin (), eigenvalues.end (), 0.0);
     std::transform (
@@ -274,7 +283,7 @@ namespace libpamm {
           f << ((j == 0) ? "" : " ") << grid.grid (i, j);
         }
         f << '\n';
-        g << grid.grid[i];
+        g << grid.grid.row (i);
         for (const auto j : grid.samplesIndexes[i]) {
           g << ' ' << j;
         }
@@ -309,10 +318,11 @@ namespace libpamm {
     if (!dataSetNormalized_) {
       dataSetNormalized_ = true;
       for (auto i = 0; i < nsamples; ++i) {
-        double norm =
-          sqrt (std::inner_product (data[i], data[i] + dim, data[i], 0.0));
+        auto row = data.row (i);
+        double norm = sqrt (
+          std::inner_product (row.begin (), row.end (), row.begin (), 0.0));
         std::transform (
-          data[i], data[i] + dim, data[i],
+          row.begin (), row.end (), row.begin (),
           [=] (double x) -> double { return x / norm; });
       }
     }
@@ -432,9 +442,10 @@ namespace libpamm {
       LocalDimensionality[GI] = RoyVetterliDimensionality (localCovariance);
       // oracle shrinkage of covariance matrix
       localCovariance = oracleShrinkage (localCovariance, nlocal);
-      CALL oracle (D, nlocal, Qi)
-        // inverse local covariance matrix and store it
-        CALL invmatrix (D, Qi, Qiinv)
+      // auto inverseLocalCovariance = localCovariance.inverse ();
+
+      // inverse local covariance matrix and store it
+      //  CALL invmatrix (D, Qi, Qiinv)
     }
   }
   /*
@@ -531,8 +542,7 @@ namespace libpamm {
       std::cerr << " Warning: localization smaller than Voronoi diameter, "
                    "increase grid size (meanwhile adjusted localization)!"
                 << std::endl;
-      weight = estimateGaussianLocalization (
-        grid, grid.grid[gID], sigmaSQ, localWeights);
+      weight = estimateGaussianLocalization (grid, gID, sigmaSQ, localWeights);
     }
   }
 } // namespace libpamm
