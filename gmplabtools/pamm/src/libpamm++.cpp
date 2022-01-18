@@ -96,6 +96,27 @@ namespace libpamm {
     return std::sqrt (2.0 - 2.0 * std::inner_product (x, x + dim, y, 0.0));
   }
 
+  double SOAPDistanceSquared (
+    size_t dim, const double *x, const double *y, double xyNormProduct) {
+    // using already initialized NormProduct
+    xyNormProduct =
+      2.0 - 2.0 * std::inner_product (x, x + dim, y, 0.0) / xyNormProduct;
+    return xyNormProduct;
+  }
+
+  double SOAPDistanceSquared (size_t dim, const double *x, const double *y) {
+    return SOAPDistanceSquared (
+      dim, x, y,
+      sqrt (
+        std::inner_product (x, x + dim, x, 0.0) *
+        std::inner_product (y, y + dim, y, 0.0)));
+  }
+
+  double
+  SOAPDistanceNormalizedSquared (size_t dim, const double *x, const double *y) {
+    return 2.0 - 2.0 * std::inner_product (x, x + dim, y, 0.0);
+  }
+
   distanceMatrix
   CalculateDistanceMatrixSOAP (double **data, size_t dataDim, size_t dim) {
     distanceMatrix distances (dataDim);
@@ -114,7 +135,7 @@ namespace libpamm {
     return distances;
   }
 
-  /**/
+  /************************************************************************/
   pammClustering::pammClustering () {}
 
   pammClustering::~pammClustering () {
@@ -133,7 +154,7 @@ namespace libpamm {
       voronoiAssociationIndex (gridDim, 0),
       gridNearestNeighbours (gridDim, 0),
       samplesIndexes (gridDim, std::vector<size_t> (0)),
-      gridDistances (gridDim) {}
+      gridDistancesSquared (gridDim) {}
 
   size_t pammClustering::gridInfo::size () const { return grid.rows (); }
   pammClustering::gridInfo
@@ -347,7 +368,7 @@ namespace libpamm {
       for (auto j = i + 1; j < grid.grid.rows (); ++j) {
         d = SOAPDistanceNormalized (
           dim, grid.grid.row (i).data (), grid.grid.row (j).data ());
-        grid.gridDistances (i, j) = d;
+        grid.gridDistancesSquared (i, j) = d;
         if (d < NNdist) {
           grid.gridNearestNeighbours[i] = j;
           NNdist = d;
@@ -503,8 +524,7 @@ namespace libpamm {
     double dSum;
     double localWeightSum = 0.0;
     for (auto gI = 0; gI < grid.size (); ++gI) {
-      dSum = grid.gridDistances (gridPoint, gI);
-      dSum *= dSum;
+      dSum = grid.gridDistancesSquared (gridPoint, gI);
       // estimate weights for localization as product from
       // spherical gaussian weights and weights in voronoi
       outweights[gI] =
@@ -554,7 +574,8 @@ namespace libpamm {
     double &weight,
     double &sigmaSQ,
     double *localWeights) {
-    double mindist = grid.gridDistances (gID, grid.gridNearestNeighbours[gID]);
+    double mindist =
+      grid.gridDistancesSquared (gID, grid.gridNearestNeighbours[gID]);
     if (sigmaSQ < mindist) {
       sigmaSQ = mindist;
       std::cerr << " Warning: localization smaller than Voronoi diameter, "
@@ -563,4 +584,60 @@ namespace libpamm {
       weight = estimateGaussianLocalization (grid, gID, sigmaSQ, localWeights);
     }
   }
+
+  void pammClustering::KernelDensityEstimation (
+    const gridInfo &grid, const std::vector<Matrix> &correctedINVCov) {
+    const double kdecut2 = 9.0 * [=] () {
+      double t = sqrt (static_cast<double> (dim)) + 1.0;
+      return t * t;
+    }();
+    std::vector<double> prob (
+      grid.size (), -std::numeric_limits<double>::max ());
+    for (size_t GI = 0; GI < grid.size (); ++GI) {
+      for (size_t GJ = 0; GJ < grid.size (); ++GJ) {
+        // mahalanobis distance is more or less the number of standard
+        // deviations from the center of a gaussian distribution, however in the
+        // SOAP case we simply divide the distance by the standard deviation: as
+        // now I do not know how to calculate the equivalent of the mahalanobis
+        // for the SOAP distance
+        double mahalanobisDistance = calculateMahalanobisDistance (
+          grid.grid.row (GI).data (), grid.grid.row (GJ).data (),
+          correctedINVCov[GI]);
+        if (mahalanobisDistance > kdecut2) {
+          // assume distribution in far away grid point is narrow and store sum
+          // of all contributions in grid point
+          // exponent of the gaussian
+          // natural logarithm of kernel
+          double lnK = -0.5 * (normkernel[GJ] + mahalanobisDistance) + lwi[GJ];
+          if (prob[GI] > lnK) {
+            prob[GI] += log (1.0 + exp (lnK - prob[GI]));
+          } else {
+            prob[GI] = lnK + log (1.0 + exp (prob[GI] - lnK));
+          }
+        } else {
+          // cycle just inside the polyhedra using the neighbour list
+          for (const auto DK : grid.samplesIndexes[GJ]) {
+            // this is the self correction
+            if (DK == grid.voronoiAssociationIndex[GI]) {
+              continue;
+            }
+            // exponent of the gaussian
+            mahalanobisDistance = calculateMahalanobisDistance (
+              grid.grid.row (GI).data (), grid.grid.row (GJ).data (),
+              correctedINVCov[GJ]);
+
+            // weighted natural logarithm of kernel
+            lnK = -0.5 * (normkernel[GJ] + mahalanobisDistance) + lwj[DK];
+            if (prob[GI] > lnK) {
+              prob[GI] += log (1.0 + exp (lnK - prob[GI]));
+            } else {
+              prob[GI] = lnK + log (1.0 + exp (prob[GI] - lnK));
+            }
+          }
+        }
+      }
+    }
+  }
+  double pammClustering::calculateMahalanobisDistance (
+    const double *A, const double *B, const Matrix &invCov) const {}
 } // namespace libpamm

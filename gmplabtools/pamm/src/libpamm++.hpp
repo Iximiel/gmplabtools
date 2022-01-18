@@ -40,16 +40,19 @@ namespace libpamm {
       std::vector<size_t> voronoiAssociationIndex{}; // ineigh: closest sample
       std::vector<size_t> gridNearestNeighbours{};
       std::vector<std::vector<size_t>> samplesIndexes{};
-      distanceMatrix gridDistances{0};
+      distanceMatrix gridDistancesSquared{0};
       size_t size () const;
     };
 
     void work ();
     void testLoadData ();
     void doNormalizeDataset ();
+
     double distanceCalculator (const size_t, const size_t) const;
 
     double distanceCalculator (const double *, const double *) const;
+    double calculateMahalanobisDistance (
+      const double *, const double *, const Matrix &) const;
     void GenerateGridDistanceMatrix (gridInfo &) const;
     double estimateGaussianLocalization (
       const gridInfo &,
@@ -80,6 +83,8 @@ namespace libpamm {
       double &weight,
       double &sigmaSQ,
       double *localWeights);
+    void
+    KernelDensityEstimation (const gridInfo &, const std::vector<Matrix> &);
 
   private:
     size_t dim{0};
