@@ -140,11 +140,30 @@ namespace libpamm {
       const gridErrorProbabilities &errors,
       const Eigen::VectorXd &prob);
 
+    void gridOutput (
+      const gridInfo &grid,
+      const quickShiftOutput &clusterInfo,
+      const gridErrorProbabilities &errors,
+      const Eigen::VectorXd &prob,
+      const Eigen::VectorXd &localDimensionality) const;
+    void classification (
+      const gridInfo &grid,
+      const quickShiftOutput &clusterInfo,
+      const std::vector<double> &normkernel,
+      const Eigen::VectorXd &prob) const;
+    Matrix CalculateLogCovarianceMatrix (
+      const size_t clusterIndex,
+      const gridInfo &grid,
+      const quickShiftOutput &clusterInfo,
+      const std::vector<double> &normkernel,
+      const Eigen::VectorXd &prob) const;
+
   private:
     size_t dim{0};
     size_t nsamples{0};
     size_t gridDim{0};
     size_t bootStraps{73};
+    size_t nmsopt{1};
     // TODO: setup
     double fractionOfPointsVal{0.1};
     double fractionOfSpreadVal{0.1};

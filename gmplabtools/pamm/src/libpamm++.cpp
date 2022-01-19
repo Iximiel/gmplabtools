@@ -228,9 +228,13 @@ namespace libpamm {
       auto clusters = quickShift (grid, gridPointProbabilities);
       auto mergedClusters =
         clusterMerger (thrpcl, grid, clusters, errors, gridPointProbabilities);
-      // TODO: Determine cluster Centers, merging the outliers
+      gridOutput (
+        grid, mergedClusters, errors, gridPointProbabilities,
+        localDimensionality);
+
       // completing the work:
       // TODO: Gaussian for each cluster and covariance
+      classification (grid, mergedClusters);
       // Output?
       // file to save: bs dim grid pamm
 
@@ -596,8 +600,9 @@ namespace libpamm {
     const Eigen::VectorXd &A,
     const Eigen::VectorXd &B,
     const Matrix &invCov) const {
+    auto D = A - B;
     // this may be euclidean?
-    return A.transpose () * (invCov * B);
+    return D.transpose () * (invCov * B);
   }
 
   pammClustering::gridErrorProbabilities
@@ -904,8 +909,6 @@ namespace libpamm {
       newClusterCenters.begin (), newClusterCenters.end ()};
     if (std::any_of (
           mergeornot.begin (), mergeornot.end (), [] (bool x) { return x; })) {
-      // get the new cluster centers
-
       std::cout << qsOut.clustersIndexes.size () - clustercenters.size ()
                 << " clusters where merged into other clusters\n";
 
@@ -934,15 +937,181 @@ namespace libpamm {
         }
         clustercenters.erase (idK);
         clustercenters.insert (newCentroidIndex);
-        // idK = getidmax (
-        // grid.size (), newgridToClusterIdx, prob, errors.absolute, idK);
-
-        // reassign the proper cluster root to each cluster points
-        // WHERE (idxroot.EQ.dummyi1) idxroot = clustercenters (i)
       }
     }
 
     return {clustercenters, newgridToClusterIdx};
   }
+  void pammClustering::gridOutput (
+    const gridInfo &grid,
+    const quickShiftOutput &clusterInfo,
+    const gridErrorProbabilities &errors,
+    const Eigen::VectorXd &prob,
+    const Eigen::VectorXd &localDimensionality) const {
+    // TODO
+    /*
+    IF(verbose) write(*,*) "Writing out"
+    OPEN(UNIT=11,FILE=trim(outputfile)//".grid",STATUS='REPLACE',ACTION='WRITE')
+    OPEN(UNIT=13,FILE=trim(outputfile)//".dim",STATUS='REPLACE',ACTION='WRITE')
+    DO i=1,ngrid
+       WRITE(13,"((A1,ES15.4E4))") " ", Di(i)
+       DO j=1,D
+          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
+       ENDDO
 
+       CALL invmatrix(D,Hiinv(:,:,i),Hi)
+
+       !print out grid file with additional information on probability, errors,
+       localization, weights in voronoi, dim
+       WRITE(11,"blabla") &
+          " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
+          " " , prob(i) ,      &
+          " " , pabserr(i),    &
+          " " , prelerr(i),    &
+          " " , sigma2(i),     &
+          " " , flocal(i),     &
+          " " , wi(i),         &
+          " " , Di(i),         &
+          " " , trmatrix(D,Hi)/DBLE(D)
+
+    ENDDO
+
+    CLOSE(UNIT=11)
+    */
+  }
+  struct gaussian {
+    /// dimensionality of the Gaussian
+    size_t D;
+    /// weight associated with the Gaussian cluster (not included in the
+    /// normalization!)
+    double weight{};
+    /// logarithm of the normalization factor
+    double lnorm{};
+    /// determinant of the covariance matrix
+    double det{};
+    /// mean of the gaussian
+    Eigen::VectorXd center;
+    /// convariance matrix
+    Matrix cov;
+    /// inverse convariance matrix
+    Matrix icov;
+    gaussian (size_t N) : D (N), center (N), cov (N, N), icov (N, N) {}
+  };
+
+  void pammClustering::classification (
+    const gridInfo &grid,
+    const quickShiftOutput &clusterInfo,
+    const std::vector<double> &normkernel,
+    const Eigen::VectorXd &prob) const {
+    //#977
+    // vonMises distribution with type -> periodic
+    // gaussians distribution with type -> non periodic
+    /*
+    ! Structure that contains the parameters needed to define and
+    ! estimate a Von Mises distribution
+    TYPE vm_type
+       INTEGER D ! dimensionality of the Gaussian
+       DOUBLE PRECISION weight ! weight associated with the Gaussian cluster
+       (not included in the normalization!)
+       DOUBLE PRECISION lnorm ! logarithm of the normalization factor
+       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: period
+       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mean
+       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: cov
+       ! convariance matrix
+       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: icov
+       ! inverse convariance matrix
+    END TYPE
+    */
+    const size_t nClusters = clusterInfo.clustersIndexes.size ();
+    std::vector<gaussian> clusters (nClusters, dim);
+    size_t k = 0;
+    double normpks = accumulateLogsumexp (qsOut.gridToClusterIdx, prob);
+    for (const size_t idK : clusterInfo.clusterIndexes) {
+      clusters[k].center = grid.grid.row (idK);
+
+      // optional mean shift for estimation of clustermode
+      for (size_t ms = 0; ms < nmsopt; ++ms) {
+        auto msmu = Eigen::VectorXd::Zero (dim);
+        // variables to set GM covariances
+        double tmppks = -std::numeric_limits<double>::max ();
+        for (size_t GI = 0; GI < grid.size (); ++GI) {
+          //     DO i=1,ngrid{
+          double mahalanobis = calculateMahalanobisDistance (
+            grid.grid.row (GI), grid.grid.row (idK), HiInvStore[idK]);
+          double msw = -0.5 * (normkernel[idK] + mahalanobis) + prob[GI];
+          auto delta = grid.grid.row (GI) - grid.grid.row (idK);
+
+          msmu += exp (msw) * delta;
+
+          // log-sum-exp
+          if (msw < tmppks) {
+            tmppks += log (1.0 + exp (msw - tmppks));
+          } else {
+            tmppks = msw + log (1.0 + exp (tmppks - msw));
+          }
+        } // GI
+        /*
+                 if(periodic){
+                    vmclusters[k].center +=  msmu /exp(tmppks);
+                 }else */
+        { clusters[k].center += msmu / exp (tmppks); }
+      } // mean shifts
+      ++k;
+
+      // compute the covariance
+      // TODO::if(periodic){}
+      {
+        // If we have a cluster with one point we compute the weighted
+        // covariance with the points in the Voronoi
+        if (
+          std::count (
+            clusterInfo.gridToClusterIdx.begin (),
+            clusterInfo.gridToClusterIdx.end (), idK) == 1) {
+          // CALL
+          // getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),clusters(k)%cov)
+          std::cerr << " Warning: single point cluster!!! \n";
+        }
+        double accumulatedLogSum =
+          accumulateLogsumexp_if (clusterInfo.gridToClusterIdx, prob, idK);
+        clusters[k].cov = oracleShrinkage (
+          CalculateLogCovarianceMatrix (
+            idK, grid, clusterInfo, normkernel, prob),
+          accumulatedLogSum);
+        clusters[k].weight = exp (accumulatedLogSum - normpks);
+      }
+    } // loop for initializing the clusters
+    // output
+    /*#1073
+      ! write the Gaussians
+      ! write a 2-lines header
+      WRITE(comment,*) "# PAMMv2 clusters analysis. NSamples: ", nsamples, "
+      NGrid: ",ngrid, " QSLambda: ", qs, ACHAR(10), "#
+      Dimensionality/NClusters//Pk/Mean/Covariance"
+
+      OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
+
+      CALL writeclusters(12, comment, nk, clusters)
+      CLOSE(UNIT=12)
+      ! maybe I should deallocate better..
+      DEALLOCATE(clusters)
+      */
+  }
+
+  Matrix pammClustering::CalculateLogCovarianceMatrix (
+    const size_t clusterIndex,
+    const gridInfo &grid,
+    const quickShiftOutput &clusterInfo,
+    const std::vector<double> &normkernel,
+    const Eigen::VectorXd &prob) const {
+    double norm =
+      accumulateLogsumexp_if (clusterInfo.gridToClusterIdx, prob, clusterIndex);
+    std::vector<double> weights (grid.size (), 0.0);
+    for (size_t GI; GI < grid.size (); ++GI) {
+      if (clusterIndex == clusterInfo.gridToClusterIdx[GI]) {
+        weights[GI] = exp (prob[GI] - norm);
+      }
+    }
+
+    return CalculateCovarianceMatrix (grid, weights, 1.0);
+  }
 } // namespace libpamm
