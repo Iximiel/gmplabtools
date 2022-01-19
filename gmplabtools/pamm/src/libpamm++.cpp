@@ -9,10 +9,12 @@
 #include <iostream>
 #include <limits>
 #include <numeric>
+
 //#include <functional>
 namespace libpamm {
+  constexpr double TWOPI = 2.0 * M_PI;
   // constexpr double log2PI = gcem::log (M_2_PI);
-  const double log2PI = std::log (M_2_PI);
+  const double log2PI = std::log (TWOPI);
   Matrix oracleShrinkage (Matrix m, double dimParameter) {
     const size_t D = m.rows ();
 
@@ -76,6 +78,24 @@ namespace libpamm {
   }
 
   void clusteringMode () {}
+
+  double EuclideanDistance (size_t dim, const double *x, const double *y) {
+    return std::sqrt (std::inner_product (
+      x, x + dim, y, 0.0, std::plus<> (), [] (double x, double y) {
+        x -= y;
+        return x * x;
+      }));
+  }
+
+  double
+  EuclideanDistanceSquared (size_t dim, const double *x, const double *y) {
+    return std::inner_product (
+      x, x + dim, y, 0.0, std::plus<> (), [] (double x, double y) {
+        x -= y;
+        return x * x;
+      });
+  }
+
   double SOAPDistance (
     size_t dim, const double *x, const double *y, double xyNormProduct) {
     // using already initialized NormProduct
@@ -113,7 +133,7 @@ namespace libpamm {
   }
 
   double
-  SOAPDistanceNormalizedSquared (size_t dim, const double *x, const double *y) {
+  SOAPDistanceSquaredNormalized (size_t dim, const double *x, const double *y) {
     return 2.0 - 2.0 * std::inner_product (x, x + dim, y, 0.0);
   }
 
@@ -150,6 +170,7 @@ namespace libpamm {
   pammClustering::gridInfo::gridInfo (size_t gridDim, size_t dataDim)
     : grid (gridDim, dataDim),
       // NofSamples (gridDim, 0),
+      gridIndexes (gridDim, 0),
       VoronoiWeights (gridDim, 0.0),
       voronoiAssociationIndex (gridDim, 0),
       gridNearestNeighbours (gridDim, 0),
@@ -157,18 +178,26 @@ namespace libpamm {
       gridDistancesSquared (gridDim) {}
 
   size_t pammClustering::gridInfo::size () const { return grid.rows (); }
+
+  pammClustering::gridErrorProbabilities::gridErrorProbabilities (
+    size_t gridDim)
+    : absolute (gridDim, 0),
+      relative (gridDim, 0) {}
+  size_t pammClustering::gridErrorProbabilities::size () const {
+    return absolute.size ();
+  }
+
   pammClustering::gridInfo
   pammClustering::createGrid (size_t firstPoint) const {
     gridInfo grid (gridDim, dim);
     std::vector<double> Dmins (nsamples, std::numeric_limits<double>::max ());
     std::vector<size_t> closestGridIndex (nsamples, 0);
-    std::vector<size_t> gridIndexes (gridDim, 0);
     /*
     auto copyPoint = [this] (auto &row, const double *dataPoint) {
       std::copy (dataPoint, dataPoint + dim, row.begin ());
     };*/
     size_t jmax = 0;
-    gridIndexes[0] = firstPoint;
+    grid.gridIndexes[0] = firstPoint;
     /*
     std::copy (
       data[firstPoint], data[firstPoint] + dim, grid.grid.row (0).begin ());
@@ -183,7 +212,7 @@ namespace libpamm {
         grid.samplesIndexes[i].reserve (nsamples / gridDim);
         dMax = 0.0;
         dNeighMin = std::numeric_limits<double>::max ();
-        size_t gridIndex = gridIndexes[i];
+        size_t gridIndex = grid.gridIndexes[i];
         // find the farthest point from gridIndex
         for (auto j = 0U; j < nsamples; ++j) {
           if (gridIndex == j) {
@@ -207,14 +236,14 @@ namespace libpamm {
         }
         grid.grid.row (i + 1) = data.row (jmax);
         // copyPoint (grid.grid.row (i + 1), data[jmax]);
-        gridIndexes[i + 1] = jmax;
+        grid.gridIndexes[i + 1] = jmax;
         Dmins[jmax] = 0.0;
         closestGridIndex[jmax] = i + 1;
       }
     }
     // completes the voronoi attribuition for the last point in the grid
     {
-      auto gridIndex = gridIndexes[gridDim - 1];
+      auto gridIndex = grid.gridIndexes[gridDim - 1];
       grid.samplesIndexes[gridDim - 1].reserve (nsamples / gridDim);
       auto dNeighMin = std::numeric_limits<double>::max ();
       for (auto j = 0U; j < nsamples; ++j) {
@@ -249,6 +278,10 @@ namespace libpamm {
       if (normalizeDataset) {
         doNormalizeDataset ();
       }
+      const double kdecut2 = 9.0 * [=] () {
+        double t = sqrt (static_cast<double> (dim)) + 1.0;
+        return t * t;
+      }();
       // auto distances = CalculateDistanceMatrixSOAP(data, nsamples, dim);
       size_t randomGeneratedFirstPoint = 1;
       double totalWeight =
@@ -276,23 +309,23 @@ namespace libpamm {
       double weightAccumulation = double (nsamples);
       //~MAYBE: Gabriel Graphs //gs is gabriel clusterign flag in pamm #473
       // Matrix covariance = CalculateCovarianceMatrix (grid, totalWeight);
-      bandwidthEstimation (grid, covariance, weightAccumulation);
-      // TODO: localization weights #527
-      // CALL
-      // localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
-      // loalization #1307
-      // TODO: localization- Kernel Density Bandwidths + warning on grid
-      // dimension
-      // // TODO: localization with fractionofpoint or fractionofspread
-      // TODO: Bandwidths from localization
-      // //~->covariance->oracle shrinkage->invert Covariance
 
-      // TODO: Kernel Density Estimation
-      // TODO: Kernel Density Estimation Statical error
-      // //TODO: bootstrap
-      // //TODO: binomial-distribution ansatz to estimate the error
+      // TODO: warning on grid dimension
+      std::vector<double> normkernel;
+      Eigen::VectorXd localDimensionality;
+      std::tie (normkernel, localDimensionality) =
+        bandwidthEstimation (grid, covariance, weightAccumulation);
 
-      // TODO: Quick-Shift (also for bootstrap)
+      auto gridPointProbabilities =
+        KernelDensityEstimation (grid, normkernel, totalWeight, kdecut2);
+      auto errors = StatisticalErrorFromKDE (
+        grid, normkernel, gridPointProbabilities, localDimensionality,
+        totalWeight, kdecut2);
+      //#871
+      // determine the clusters with quickShift
+      auto clusters = quickShift (grid, gridPointProbabilities);
+      auto mergedClusters =
+        clusterMerger (thrpcl, grid, clusters, errors, gridPointProbabilities);
       // TODO: Determine cluster Centers, merging the outliers
       // completing the work:
       // TODO: Gaussian for each cluster and covariance
@@ -366,7 +399,7 @@ namespace libpamm {
     for (auto i = 0; i < grid.grid.rows (); ++i) {
       auto NNdist = std::numeric_limits<double>::max ();
       for (auto j = i + 1; j < grid.grid.rows (); ++j) {
-        d = SOAPDistanceNormalized (
+        d = SOAPDistanceSquaredNormalized (
           dim, grid.grid.row (i).data (), grid.grid.row (j).data ());
         grid.gridDistancesSquared (i, j) = d;
         if (d < NNdist) {
@@ -397,8 +430,6 @@ namespace libpamm {
     const gridInfo &grid,
     const std::vector<double> &weights,
     const double totalWeight) const {
-    // CALL covariance(D,period,ngrid,normwj,wi,y,Q)
-    //     covariance(D,period,N    ,wnorm,w,x,Q)
     std::vector<double> means (dim);
     Matrix deltafromMeans (grid.grid.rows (), dim);
     Matrix deltafromMeansWeighted (grid.grid.rows (), dim);
@@ -431,15 +462,15 @@ namespace libpamm {
     return covariance;
   }
 
-  void pammClustering::bandwidthEstimation (
+  std::pair<std::vector<double>, Eigen::VectorXd>
+  pammClustering::bandwidthEstimation (
     const gridInfo &grid, const Matrix &covariance, const double totalWeight) {
     std::vector<double> localWeights (grid.size ());
     std::vector<double> logDetHi (grid.size ());
-    std::vector<double> qscut2 (grid.size ());
+    QuickShiftCutSQ.resize (grid.size ());
     std::vector<double> normkernel (grid.size ());
-    // std::vector<double> LocalDimensionality (grid.size ());
     Eigen::VectorXd LocalDimensionality (grid.size ());
-    std::vector<Matrix> HiInvStore (grid.size ());
+    HiInvStore.resize (grid.size ());
     double delta = totalWeight / static_cast<double> (nsamples);
     tune = 0.0;
     for (auto D = 0; D < dim; ++D) {
@@ -483,9 +514,10 @@ namespace libpamm {
       // estimate the logarithmic normalization constants
       normkernel[GI] = static_cast<double> (dim) * log2PI + logDetHi[GI];
       // adaptive QS cutoff from local covariance
-      qscut2[GI] = localCovariance.trace ();
-      qscut2[GI] *= qscut2[GI];
+      QuickShiftCutSQ[GI] = localCovariance.trace ();
+      QuickShiftCutSQ[GI] *= QuickShiftCutSQ[GI];
     }
+    return {normkernel, LocalDimensionality};
   }
   /*
       Matrix matrixOfDistances (const Matrix &points, const double *point) {
@@ -585,13 +617,13 @@ namespace libpamm {
     }
   }
 
-  void pammClustering::KernelDensityEstimation (
-    const gridInfo &grid, const std::vector<Matrix> &correctedINVCov) {
-    const double kdecut2 = 9.0 * [=] () {
-      double t = sqrt (static_cast<double> (dim)) + 1.0;
-      return t * t;
-    }();
-    std::vector<double> prob (
+  Eigen::VectorXd pammClustering::KernelDensityEstimation (
+    const gridInfo &grid,
+    const std::vector<double> &normkernel,
+    const double weightNorm,
+    const double kdecut2) {
+    // probabilities at grid points
+    Eigen::VectorXd prob = Eigen::VectorXd ::Constant (
       grid.size (), -std::numeric_limits<double>::max ());
     for (size_t GI = 0; GI < grid.size (); ++GI) {
       for (size_t GJ = 0; GJ < grid.size (); ++GJ) {
@@ -601,14 +633,14 @@ namespace libpamm {
         // now I do not know how to calculate the equivalent of the mahalanobis
         // for the SOAP distance
         double mahalanobisDistance = calculateMahalanobisDistance (
-          grid.grid.row (GI).data (), grid.grid.row (GJ).data (),
-          correctedINVCov[GI]);
+          grid.grid.row (GI), grid.grid.row (GJ), HiInvStore[GI]);
         if (mahalanobisDistance > kdecut2) {
           // assume distribution in far away grid point is narrow and store sum
           // of all contributions in grid point
           // exponent of the gaussian
           // natural logarithm of kernel
-          double lnK = -0.5 * (normkernel[GJ] + mahalanobisDistance) + lwi[GJ];
+          double lnK = -0.5 * (normkernel[GJ] + mahalanobisDistance) +
+                       log (grid.VoronoiWeights[GJ]);
           if (prob[GI] > lnK) {
             prob[GI] += log (1.0 + exp (lnK - prob[GI]));
           } else {
@@ -618,26 +650,374 @@ namespace libpamm {
           // cycle just inside the polyhedra using the neighbour list
           for (const auto DK : grid.samplesIndexes[GJ]) {
             // this is the self correction
-            if (DK == grid.voronoiAssociationIndex[GI]) {
+            if (DK == grid.gridIndexes[GI]) {
               continue;
             }
             // exponent of the gaussian
             mahalanobisDistance = calculateMahalanobisDistance (
-              grid.grid.row (GI).data (), grid.grid.row (GJ).data (),
-              correctedINVCov[GJ]);
+              grid.grid.row (GI), grid.grid.row (GJ), HiInvStore[GJ]);
 
             // weighted natural logarithm of kernel
-            lnK = -0.5 * (normkernel[GJ] + mahalanobisDistance) + lwj[DK];
+            double lnK = -0.5 * (normkernel[GJ] + mahalanobisDistance) +
+                         log (dataWeights[DK]);
             if (prob[GI] > lnK) {
               prob[GI] += log (1.0 + exp (lnK - prob[GI]));
             } else {
               prob[GI] = lnK + log (1.0 + exp (prob[GI] - lnK));
             }
           }
+        } // if/else(mahalanobisDistance > kdecut2)
+      }   // GJ
+      prob[GI] -= weightNorm;
+    } // GI
+    /*
+        for (size_t GI = 0; GI < grid.size (); ++GI) {
+          prob[GI] -= weightNorm;
+        }
+        */
+    return prob;
+  }
+
+  /*
+  double pammClustering::calculateMahalanobisDistance (
+    const double *A, const double *B, const Matrix &invCov) const {
+    auto vA = Eigen::Map<Eigen::Matrix<const double, -1, 1>> (
+      A, invCov.rows ()); // (A,invCov.rows ());
+    // Eigen::VectorXd vA (invCov.rows (), A);
+    auto vB =
+      Eigen::Map<Eigen::Matrix<const double, -1, 1>> (B, invCov.rows ());
+    // this may be euclidean?
+    return vA.transpose () * (invCov * vB);
+  }*/
+
+  double pammClustering::calculateMahalanobisDistance (
+    const Eigen::VectorXd &A,
+    const Eigen::VectorXd &B,
+    const Matrix &invCov) const {
+    // this may be euclidean?
+    return A.transpose () * (invCov * B);
+  }
+
+  pammClustering::gridErrorProbabilities
+  pammClustering::StatisticalErrorFromKDE (
+    const gridInfo &grid,
+    const std::vector<double> &normkernel,
+    const Eigen::VectorXd &prob,
+    const Eigen::VectorXd &localDimensionality,
+    const double weightNorm,
+    const double kdecut2) {
+    // errors
+    gridErrorProbabilities errors (grid.size ());
+    if (bootStraps > 0) {
+      // probabilities for each bootstrap step
+      Matrix probboot (bootStraps, grid.size ());
+      // bootstrapping:
+      for (size_t boot = 0; boot < bootStraps; ++boot) {
+        // rather than selecting nsel random points, we select a random number
+        // of points from each voronoi. this makes it possible to apply some
+        // simplifications and avoid computing distances from far-away voronoi
+        size_t nbstot = 0;
+        for (size_t GJ = 0; GJ < grid.size (); ++GJ) {
+          // here we select points and assign them to grid points (i.e. this is
+          // an "inside out" version of the KDE code) we want to loop over grid
+          // points and know how many points we should pick from a bootstrapping
+          // sample. this is given by a binomial distribution -- the total
+          // number of samples will not be *exactly* nsamples, but will be close
+          // enough
+          std::binomial_distribution<size_t> random_binomial (
+            nsamples, static_cast<double> (grid.samplesIndexes[GJ].size ()) /
+                        static_cast<double> (nsamples));
+          size_t nbssample = random_binomial (randomEngine);
+          if (nbssample == 0) {
+            continue;
+          }
+
+          // calculate "scaled" weight for contribution from far away voronoi we
+          // take into account the fact that we might have selected a number of
+          // samples different from ni(j)
+          double dummd2 = log (
+                            static_cast<double> (nbssample) /
+                            grid.samplesIndexes[GJ].size ()) *
+                          log (grid.VoronoiWeights[GJ]);
+
+          nbstot += nbssample;
+          for (size_t GI = 0; GI < grid.size (); ++GI) {
+            // this is the distance between the grid point from which we're
+            // sampling (j) and the one on which we're accumulating the KDE (i)
+            double dummd1 = calculateMahalanobisDistance (
+              grid.grid.row (GI), grid.grid.row (GJ), HiInvStore[GJ]);
+            if (dummd1 < kdecut2) {
+              // if the two cells are far apart, we just compute an "average
+              // contribution" from the far away Voronoi
+              double lnK = -0.5 * (normkernel[GJ] + dummd1) + dummd2;
+              if (probboot (boot, GI) > lnK) {
+                probboot (boot, GI) +=
+                  log (1.0 + exp (lnK - probboot (boot, GI)));
+              } else {
+                probboot (boot, GI) =
+                  lnK + log (1.0 + exp (probboot (boot, GI) - lnK));
+              }
+            } else {
+              // do the actual bootstrapping selection for this Voronoi
+              std::uniform_int_distribution<size_t> randomIndex (
+                0, grid.samplesIndexes[GJ].size () - 1);
+              for (size_t k = 0; k < nbssample; ++k) {
+                size_t rndidx =
+                  grid.samplesIndexes[GJ][randomIndex (randomEngine)];
+
+                if (rndidx == grid.gridIndexes[GI]) {
+                  continue;
+                }
+                double dummd1 = calculateMahalanobisDistance (
+                  grid.grid.row (GI), data.row (rndidx), HiInvStore[GJ]);
+                double lnK =
+                  -0.5 * (normkernel[GJ] + dummd1) + log (dataWeights[rndidx]);
+                if (probboot (boot, GI) > lnK) {
+                  probboot (boot, GI) =
+                    probboot (boot, GI) +
+                    log (1.0 + exp (lnK - probboot (boot, GI)));
+                } else {
+                  probboot (boot, GI) =
+                    lnK + log (1.0 + exp (probboot (boot, GI) - lnK));
+                }
+              }
+            }
+          } // GI
+        }   // GJ
+        // normalizes the probability estimate, keeping into account that we
+        // might have used a different number of sample points than nsamples
+        {
+          double subtract =
+            log (weightNorm) +
+            log (static_cast<double> (nbstot) / static_cast<double> (nsamples));
+          std::transform (
+            probboot.row (boot).begin (), probboot.row (boot).end (),
+            probboot.row (boot).begin (),
+            [subtract] (double x) { return x - subtract; });
+        }
+        //#774: quick-shift
+        auto clusterIndexes = quickShift (grid, probboot.row (boot));
+        //#810: output for bootstrap
+
+      } // bootstrap cycle
+      // computes the bootstrap error from the statistics of the nbootstrap KDE
+      // runs
+      //#828
+      for (size_t GI = 0; GI < grid.size (); ++GI) {
+        for (size_t boot = 0; boot < bootStraps; ++boot) {
+          if (prob[GI] > probboot (boot, GI)) {
+            errors.absolute[GI] += exp (
+              2.0 * (probboot (boot, GI) +
+                     log (1.0 - exp (prob[GI] - probboot (boot, GI)))));
+          } else {
+            errors.absolute[GI] += exp (
+              2.0 *
+              (prob[GI] + log (1.0 - exp (probboot (boot, GI) - prob[GI]))));
+          }
+        }
+        errors.absolute[GI] =
+          log (sqrt (errors.absolute[GI] / (bootStraps - 1.0)));
+        errors.relative[GI] = errors.absolute[GI] - prob[GI];
+      }
+    } else {
+      // use a binomial-distribution ansatz to estimate the error
+      for (size_t GI = 0; GI < grid.size (); ++GI) {
+        auto i = GI;
+        double mindist =
+          grid.gridDistancesSquared (GI, grid.gridNearestNeighbours[GI]);
+        errors.relative[i] = log (sqrt (
+          (((pow (mindist * TWOPI, -localDimensionality[i])) / exp (prob[i])) -
+           1.0) /
+          nsamples));
+
+        errors.absolute[i] = errors.relative[i] + prob[i];
+      }
+    }
+    return errors;
+  }
+
+  pammClustering::quickShiftOutput pammClustering::quickShift (
+    const gridInfo &grid, const Eigen::VectorXd &probabilities) {
+    // Vedaldi, A.; Soatto, S. In Computer Vision - ECCV 2008:10th European
+    // Conference on Computer Vision, Marseille, France, October 12–18, 2008,
+    // Proceedings, Part IV; Forsyth, D.; Torr, P.; Zisserman, A., Eds.;
+    // Springer: Berlin, 2008; pp 705– 718.
+
+    std::vector<size_t> roots (grid.size (), 0);
+
+    using indexVect = Eigen::Matrix<size_t, 1, -1>;
+    indexVect qspath (grid.size ());
+    for (size_t GI = 0; GI < grid.size (); ++GI) {
+      if (roots[GI] != 0) {
+        continue;
+      }
+      /*IF(verbose .AND. (modulo(i,1000).EQ.0)) &
+         WRITE(*,*) i,"/",ngrid
+         */
+      qspath = indexVect::Zero (grid.size ());
+      qspath[0] = GI;
+      size_t counter = 0;
+      while (qspath[counter] != roots[qspath[counter]]) {
+        // TODO: Gabriel graph computation
+        /*
+          if (doGabrielGraphs) {
+             roots[qspath[counter]] =
+          gs_next[ngrid,qspath[counter],probabilities,distmm,gabriel,gs)
+          }else*/
+        {
+          roots[qspath[counter]] = QuickShift_nextPoint (
+            grid.size (), qspath[counter],
+            grid.gridNearestNeighbours[qspath[counter]],
+            QuickShiftCutSQ[qspath[counter]], probabilities,
+            grid.gridDistancesSquared);
+        }
+        if (roots[roots[qspath[counter]]] != 0) {
+          break;
+        }
+        ++counter;
+        qspath[counter] = roots[qspath[counter - 1]];
+      }
+      for (size_t i = 0; i < counter; ++i) {
+        // we found a new root, and we now set this point as the root for all
+        // the point that are in this qspath
+        roots[qspath[i]] = roots[roots[qspath[counter]]];
+      }
+    }
+
+    // get a set with the unique cluster centers
+    return {std::set<size_t>{roots.begin (), roots.end ()}, roots};
+  }
+  size_t QuickShift_nextPoint (
+    const size_t ngrid,
+    const size_t idx,
+    const size_t idxn,
+    const double lambda,
+    const Eigen::VectorXd &probnmm,
+    const distanceMatrix &distmm) {
+    // Args:
+    //    ngrid: number of grid points
+    //    idx: current point
+    //    qscut: cut-off in the jump
+    //    probnmm: density estimations
+    //    distmm: distances matrix
+
+    double dmin = std::numeric_limits<double>::max ();
+    size_t qs_next = (probnmm (idxn) < probnmm (idx)) ? idx : idxn;
+    for (size_t GJ = 0; GJ < ngrid; ++GJ) {
+      if (probnmm (idx) < probnmm (GJ)) {
+        if ((distmm (idx, GJ) < dmin) && (distmm (idx, GJ) < lambda)) {
+          dmin = distmm (idx, GJ);
+          qs_next = GJ;
         }
       }
     }
+    return qs_next;
   }
-  double pammClustering::calculateMahalanobisDistance (
-    const double *A, const double *B, const Matrix &invCov) const {}
+
+  template <typename VecType>
+  double accumulateLogsumexp (
+    const std::vector<size_t> &indexes, const VecType &probabilities) {
+    double sum = -std::numeric_limits<double>::max ();
+    for (size_t i = 0; i < indexes.size (); ++i) {
+      if (probabilities[i] < sum) {
+        sum += log (1.0 + exp (probabilities[i] - sum));
+      } else {
+        sum = probabilities[i] + log (1.0 + exp (sum - probabilities[i]));
+      }
+    }
+    return sum;
+  }
+
+  template <typename VecType>
+  double accumulateLogsumexp_if (
+    const std::vector<size_t> &indexes,
+    const VecType &probabilities,
+    size_t sum_if) {
+    double sum = -std::numeric_limits<double>::max ();
+    for (size_t i = 0; i < indexes.size (); ++i) {
+      if (indexes[i] == sum_if) {
+        if (probabilities[i] < sum) {
+          sum += log (1.0 + exp (probabilities[i] - sum));
+        } else {
+          sum = probabilities[i] + log (1.0 + exp (sum - probabilities[i]));
+        }
+      }
+    }
+    return sum;
+  }
+
+  pammClustering::quickShiftOutput pammClustering::clusterMerger (
+    const double mergeThreshold,
+    const gridInfo &grid,
+    const quickShiftOutput &qsOut,
+    const gridErrorProbabilities &errors,
+    const Eigen::VectorXd &prob) {
+    //#907
+    // get sum of the probs, the normalization factor
+    double normpks = accumulateLogsumexp (qsOut.gridToClusterIdx, prob);
+    std::vector<size_t> newClusterCenters (
+      qsOut.clustersIndexes.begin (), qsOut.clustersIndexes.end ());
+    std::vector<size_t> newgridToClusterIdx = qsOut.gridToClusterIdx;
+    // check if there are outliers that should be merged to the others
+    std::vector<bool> mergeornot (qsOut.clustersIndexes.size (), false);
+    size_t k = 0;
+    for (auto idK : qsOut.clustersIndexes) {
+      // compute the relative weight of the cluster
+      double mergeParameter = exp (
+        accumulateLogsumexp_if (qsOut.gridToClusterIdx, prob, idK) - normpks);
+      /*
+    std::cerr << idK << " " << k << ": " << mergeParameter << " "
+              << ((mergeParameter < mergeThreshold) ? "merge"
+                                                    : "do not merge")
+              << "\n";
+              */
+      mergeornot[k] = mergeParameter < mergeThreshold;
+      ++k;
+    }
+    // merge the outliers
+    k = 0;
+    for (auto idK : qsOut.clustersIndexes) {
+      if (mergeornot[k]) {
+        double minDistSQ = std::numeric_limits<double>::max ();
+        size_t j = 0;
+        for (auto idJ : qsOut.clustersIndexes) {
+          if (!mergeornot[j]) {
+            double distSQ = grid.gridDistancesSquared (idK, idJ);
+            if (distSQ < minDistSQ) {
+              minDistSQ = distSQ;
+              newClusterCenters[k] = newClusterCenters[j];
+            }
+          }
+          ++j;
+        }
+        for (size_t i = 0; i < newgridToClusterIdx.size (); ++i) {
+          if (newgridToClusterIdx[i] == idK) {
+            newgridToClusterIdx[i] = newClusterCenters[k];
+          }
+        }
+      }
+      ++k;
+    }
+    if (std::any_of (
+          mergeornot.begin (), mergeornot.end (), [] (bool x) { return x; })) {
+      // get the new cluster centers
+      std::set<size_t> clustercenters{
+        newClusterCenters.begin (), newClusterCenters.end ()};
+      std::cout << qsOut.clustersIndexes.size () - clustercenters.size ()
+                << " clusters where merged into other clusters\n";
+      /*
+            // get the real maxima in the cluster, considering the errorbar
+            for (auto idK : clustercenters) {
+              idK = getidmax (grid.size (), newgridToClusterIdx, prob, pabserr,
+         idK);
+              // reassign the proper cluster root to each cluster points
+              WHERE (idxroot.EQ.dummyi1) idxroot = clustercenters (i)
+            }*/
+    }
+
+    return {
+      std::set<size_t>{newClusterCenters.begin (), newClusterCenters.end ()},
+      newgridToClusterIdx};
+  }
+
 } // namespace libpamm

@@ -10,19 +10,33 @@ double __libpamm_MOD_mahalanobis(int, double *period, double *x, double *y,
 */
 #include <Eigen/Core>
 #include <dynamicMatrices/dynamicMatrices.hpp>
+#include <random>
+#include <set>
 #include <vector>
-
 namespace libpamm {
   void clusteringMode ();
   double SOAPDistance (size_t dim, const double *x, const double *y);
 
   double SOAPDistance (
     size_t dim, const double *x, const double *y, double xyNormProduct);
+  double
+  SOAPDistanceSquaredNormalized (size_t dim, const double *x, const double *y);
+  double SOAPDistanceSquared (size_t dim, const double *x, const double *y);
+
+  double SOAPDistanceSquared (
+    size_t dim, const double *x, const double *y, double xyNormProduct);
   double SOAPDistanceNormalized (size_t dim, const double *x, const double *y);
   using distanceMatrix = dynamicMatrices::triangularMatrix<double>;
   using Matrix = Eigen::MatrixXd;
-  // using NNMatrix = triangularMatrix<size_t>;
 
+  // using NNMatrix = triangularMatrix<size_t>;
+  size_t QuickShift_nextPoint (
+    const size_t ngrid,
+    const size_t idx,
+    const size_t idxn,
+    const double lambda,
+    const Eigen::VectorXd &probnmm,
+    const distanceMatrix &distmm);
   class pammClustering final {
   public:
     pammClustering ();
@@ -33,14 +47,23 @@ namespace libpamm {
     struct gridInfo {
       /// Contains the information for the grid
       gridInfo () = delete;
-      gridInfo (size_t, size_t);
+      gridInfo (size_t gridDim, size_t dataDim);
       Matrix grid{0, 0};
+      std::vector<size_t> gridIndexes{}; // idxgrid
       // std::vector<size_t> NofSamples{};// ni is .size of samplesIndexes
       std::vector<double> VoronoiWeights{};          // wi
       std::vector<size_t> voronoiAssociationIndex{}; // ineigh: closest sample
       std::vector<size_t> gridNearestNeighbours{};
       std::vector<std::vector<size_t>> samplesIndexes{};
       distanceMatrix gridDistancesSquared{0};
+      size_t size () const;
+    };
+
+    struct gridErrorProbabilities {
+      gridErrorProbabilities () = delete;
+      gridErrorProbabilities (size_t);
+      std::vector<double> absolute{}; // pabserr
+      std::vector<double> relative{}; // prelerr
       size_t size () const;
     };
 
@@ -51,8 +74,14 @@ namespace libpamm {
     double distanceCalculator (const size_t, const size_t) const;
 
     double distanceCalculator (const double *, const double *) const;
+    /*
     double calculateMahalanobisDistance (
       const double *, const double *, const Matrix &) const;
+*/
+    double calculateMahalanobisDistance (
+      const Eigen::VectorXd &A,
+      const Eigen::VectorXd &B,
+      const Matrix &invCov) const;
     void GenerateGridDistanceMatrix (gridInfo &) const;
     double estimateGaussianLocalization (
       const gridInfo &,
@@ -68,7 +97,8 @@ namespace libpamm {
       const gridInfo &,
       const std::vector<double> &weights,
       const double totalWeight) const;
-    void bandwidthEstimation (const gridInfo &, const Matrix &, const double);
+    std::pair<std::vector<double>, Eigen::VectorXd>
+    bandwidthEstimation (const gridInfo &, const Matrix &, const double);
     void fractionOfPointsLocalization (
       const gridInfo &grid,
       const size_t gID,
@@ -83,21 +113,50 @@ namespace libpamm {
       double &weight,
       double &sigmaSQ,
       double *localWeights);
-    void
-    KernelDensityEstimation (const gridInfo &, const std::vector<Matrix> &);
+    Eigen::VectorXd KernelDensityEstimation (
+      const gridInfo &,
+      const std::vector<double> &,
+      const double weightNorm,
+      const double kdecut2);
+    gridErrorProbabilities StatisticalErrorFromKDE (
+      const gridInfo &grid,
+      const std::vector<double> &normkernel,
+      const Eigen::VectorXd &prob,
+      const Eigen::VectorXd &localDimensionality,
+      const double weightNorm,
+      const double kdecut2);
+
+    struct quickShiftOutput {
+      const std::set<size_t> clustersIndexes;
+      const std::vector<size_t> gridToClusterIdx;
+    };
+
+    quickShiftOutput
+    quickShift (const gridInfo &grid, const Eigen::VectorXd &probabilities);
+    static quickShiftOutput clusterMerger (
+      const double mergeThreshold,
+      const gridInfo &grid,
+      const quickShiftOutput &qsOut,
+      const gridErrorProbabilities &errors,
+      const Eigen::VectorXd &prob);
 
   private:
     size_t dim{0};
     size_t nsamples{0};
     size_t gridDim{0};
-
+    size_t bootStraps{73};
     // TODO: setup
     double fractionOfPointsVal{0.1};
     double fractionOfSpreadVal{0.1};
+    /// parmeter controlling the merging of the outlier clusters
+    double thrpcl{0.15};
     double tune{0.01};
     std::vector<double> dataWeights{};
+    std::vector<double> QuickShiftCutSQ{};
     Matrix data{0, 0}; /// TODO: correct this
     gridInfo createGrid (size_t firstPoint = 0) const;
+    std::vector<Matrix> HiInvStore{};
+    std::mt19937_64 randomEngine{1};
     bool initialized_{false};
     bool dataSetNormalized_{false};
   };
