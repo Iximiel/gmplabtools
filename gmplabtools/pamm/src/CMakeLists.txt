@@ -67,7 +67,7 @@ set(EIGEN_BUILD_PKGCONFIG OFF)
 set( OFF)
 FetchContent_MakeAvailable(Eigen)
 
-add_library(base libpamm++.cpp)
+add_library(base libpamm++.cpp libPammObjects.cpp)
 target_link_libraries(base DynamicMatrices::DynamicMatrices Eigen3::Eigen)
 target_include_directories(base
   PUBLIC

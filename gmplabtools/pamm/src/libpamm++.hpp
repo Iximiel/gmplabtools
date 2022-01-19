@@ -14,7 +14,7 @@ double __libpamm_MOD_mahalanobis(int, double *period, double *x, double *y,
 #include <set>
 #include <vector>
 namespace libpamm {
-  void clusteringMode ();
+
   double SOAPDistance (size_t dim, const double *x, const double *y);
 
   double SOAPDistance (
