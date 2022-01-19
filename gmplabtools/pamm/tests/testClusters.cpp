@@ -47,33 +47,40 @@ TEST_CASE (
     3           0.186497
     5           0.220716
     7           0.263174
+    // point 6 has a probaility higher than 7 (this should provoke some
+    movements)
+    // point 5 has a probaility higher than 1 (this should provoke some
+    movements)
 */
   {
     auto out =
       libpamm::pammClustering::clusterMerger (0.21, grid, t, errors, probs);
     // print (out, std::cerr);
-    REQUIRE (out.clustersIndexes.count (1) != 0);
-    REQUIRE (out.clustersIndexes.count (3) == 0);
-    REQUIRE (out.clustersIndexes.count (5) != 0);
-    REQUIRE (out.clustersIndexes.count (7) != 0);
+    CHECK (out.clustersIndexes.count (1) != 0);
+    CHECK (out.clustersIndexes.count (3) == 0);
+    CHECK (out.clustersIndexes.count (5) != 0);
+    CHECK (out.clustersIndexes.count (6) != 0);
+    CHECK (out.clustersIndexes.count (7) == 0); // 7->6
   }
   {
     auto out =
       libpamm::pammClustering::clusterMerger (0.23, grid, t, errors, probs);
     // print (out, std::cerr);
-    REQUIRE (out.clustersIndexes.count (1) != 0);
-    REQUIRE (out.clustersIndexes.count (3) == 0);
-    REQUIRE (out.clustersIndexes.count (5) == 0);
-    REQUIRE (out.clustersIndexes.count (7) != 0);
+    CHECK (out.clustersIndexes.count (1) == 0); // 1->5
+    CHECK (out.clustersIndexes.count (3) == 0);
+    CHECK (out.clustersIndexes.count (5) != 0);
+    CHECK (out.clustersIndexes.count (6) != 0);
+    CHECK (out.clustersIndexes.count (7) == 0); // 7->6
   }
 
   {
     auto out =
       libpamm::pammClustering::clusterMerger (0.1, grid, t, errors, probs);
     // print (out, std::cerr);
-    REQUIRE (out.clustersIndexes.count (1) != 0);
-    REQUIRE (out.clustersIndexes.count (3) != 0);
-    REQUIRE (out.clustersIndexes.count (5) != 0);
-    REQUIRE (out.clustersIndexes.count (7) != 0);
+    // no movements
+    CHECK (out.clustersIndexes.count (1) != 0);
+    CHECK (out.clustersIndexes.count (3) != 0);
+    CHECK (out.clustersIndexes.count (5) != 0);
+    CHECK (out.clustersIndexes.count (7) != 0);
   }
 }

@@ -966,11 +966,11 @@ namespace libpamm {
       double mergeParameter = exp (
         accumulateLogsumexp_if (qsOut.gridToClusterIdx, prob, idK) - normpks);
       /*
-    std::cerr << idK << " " << k << ": " << mergeParameter << " "
-              << ((mergeParameter < mergeThreshold) ? "merge"
-                                                    : "do not merge")
-              << "\n";
-              */
+      std::cerr << idK << " " << k << ": " << mergeParameter << " "
+                << ((mergeParameter < mergeThreshold) ? "merge"
+                                                      : "do not merge")
+                << "\n";
+      */
       mergeornot[k] = mergeParameter < mergeThreshold;
       ++k;
     }
@@ -998,26 +998,49 @@ namespace libpamm {
       }
       ++k;
     }
+    std::set<size_t> clustercenters{
+      newClusterCenters.begin (), newClusterCenters.end ()};
     if (std::any_of (
           mergeornot.begin (), mergeornot.end (), [] (bool x) { return x; })) {
       // get the new cluster centers
-      std::set<size_t> clustercenters{
-        newClusterCenters.begin (), newClusterCenters.end ()};
+
       std::cout << qsOut.clustersIndexes.size () - clustercenters.size ()
                 << " clusters where merged into other clusters\n";
-      /*
-            // get the real maxima in the cluster, considering the errorbar
-            for (auto idK : clustercenters) {
-              idK = getidmax (grid.size (), newgridToClusterIdx, prob, pabserr,
-         idK);
-              // reassign the proper cluster root to each cluster points
-              WHERE (idxroot.EQ.dummyi1) idxroot = clustercenters (i)
-            }*/
+
+      // get the real maxima in the cluster, considering the errorbar
+      for (auto idK : clustercenters) {
+        double maxP = 0.0;
+        size_t newCentroidIndex = idK;
+        // search for the index of the grid point(centroid) with
+        // max prob within abs err
+        for (size_t i = 0; i < newgridToClusterIdx.size (); ++i) {
+          if (newgridToClusterIdx[i] == idK) {
+            double tempP = exp (prob[i]) + exp (errors.absolute[i]);
+            if (maxP < tempP) {
+              maxP = tempP;
+              newCentroidIndex = i;
+            }
+          }
+        }
+        // reassign the cluster to the new centroid
+        if (idK != newCentroidIndex) {
+          for (size_t i = 0; i < newgridToClusterIdx.size (); ++i) {
+            if (newgridToClusterIdx[i] == idK) {
+              newgridToClusterIdx[i] = newCentroidIndex;
+            }
+          }
+        }
+        clustercenters.erase (idK);
+        clustercenters.insert (newCentroidIndex);
+        // idK = getidmax (
+        // grid.size (), newgridToClusterIdx, prob, errors.absolute, idK);
+
+        // reassign the proper cluster root to each cluster points
+        // WHERE (idxroot.EQ.dummyi1) idxroot = clustercenters (i)
+      }
     }
 
-    return {
-      std::set<size_t>{newClusterCenters.begin (), newClusterCenters.end ()},
-      newgridToClusterIdx};
+    return {clustercenters, newgridToClusterIdx};
   }
 
 } // namespace libpamm
