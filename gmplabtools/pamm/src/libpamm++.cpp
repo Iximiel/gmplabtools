@@ -6,8 +6,10 @@
 #include <cassert>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <numeric>
 
 //#include <functional>
@@ -150,29 +152,27 @@ namespace libpamm {
       // TODO: warning on grid dimension
       std::vector<double> normkernel;
       Eigen::VectorXd localDimensionality;
-      std::tie (normkernel, localDimensionality) =
+      std::tie (
+        normkernel, localDimensionality, grid.localWeightSum, grid.sigmaSQ) =
         bandwidthEstimation (grid, covariance, weightAccumulation);
 
-      auto gridPointProbabilities =
+      grid.pointProbabilities =
         KernelDensityEstimation (grid, normkernel, totalWeight, kdecut2);
       auto errors = StatisticalErrorFromKDE (
-        grid, normkernel, gridPointProbabilities, localDimensionality,
-        totalWeight, kdecut2);
+        grid, normkernel, localDimensionality, totalWeight, kdecut2);
       //#871
       // determine the clusters with quickShift
-      auto clusters = quickShift (grid, gridPointProbabilities);
-      auto mergedClusters =
-        clusterMerger (thrpcl_, grid, clusters, errors, gridPointProbabilities);
-      gridOutput (
-        grid, mergedClusters, errors, gridPointProbabilities,
-        localDimensionality);
+      auto clusters = quickShift (grid, grid.pointProbabilities);
+      auto mergedClusters = clusterMerger (thrpcl_, grid, clusters, errors);
+      printGRIDFile (grid, mergedClusters, errors, localDimensionality);
+
+      printDIMFile (localDimensionality);
 
       // completing the work:
       // TODO: Gaussian for each cluster and covariance
-      auto gaussianClusters = classification (
-        grid, mergedClusters, normkernel, gridPointProbabilities);
+      auto gaussianClusters = classification (grid, mergedClusters, normkernel);
 
-      printClusters (gaussianClusters);
+      printPAMMFile (gaussianClusters);
       // Output?
       // file to save: bs dim grid pamm
 
@@ -260,17 +260,21 @@ namespace libpamm {
       for (auto i = 0; i < grid.size(); ++i) {
         auto NNdist = std::numeric_limits<double>::max ();
         for (auto j = i + 1; j < grid.size(); ++j) {
-          d = SOAPDistanceNormalized (dim_, grid.grid[i], grid.grid[j]);
+          d = SOAPDistanceNormalized (dim_, grid.grid[GI], grid.grid[j]);
           grid.gridDistances (i, j) = d;
           if (d < NNdist) {
-            grid.gridNearestNeighbours[i] = j;
+            grid.gridNearestNeighbours[GI] = j;
             NNdist = d;
           }
         }
       }
     }
   */
-  std::pair<std::vector<double>, Eigen::VectorXd>
+  std::tuple<
+    std::vector<double>,
+    Eigen::VectorXd,
+    std::vector<double>,
+    std::vector<double>>
   pammClustering::bandwidthEstimation (
     const gridInfo &grid, const Matrix &covariance, const double totalWeight) {
     std::vector<double> localWeights (grid.size ());
@@ -285,25 +289,30 @@ namespace libpamm {
       tune_ += covariance (D, D);
     }
     std::vector<double> sigmaSQ (grid.size (), tune_);
+    std::vector<double> localWeightSum (grid.size ());
     bool useFractionOfPoints = true;
     for (auto GI = 0; GI < grid.size (); ++GI) {
-      double localWeightSum = estimateGaussianLocalization (
+      localWeightSum[GI] = estimateGaussianLocalization (
         grid, GI, sigmaSQ[GI], localWeights.data ());
       // two strategies:
       if (useFractionOfPoints) {
-        fractionOfPointsLocalization (
-          grid, GI, delta, localWeightSum, sigmaSQ[GI], localWeights.data ());
+        std::tie (localWeightSum[GI], sigmaSQ[GI]) =
+          fractionOfPointsLocalization (
+            grid, GI, delta, localWeightSum[GI], sigmaSQ[GI],
+            localWeights.data ());
       } else {
-        fractionOfSpreadLocalization (
-          grid, GI, delta, localWeightSum, sigmaSQ[GI], localWeights.data ());
+        std::tie (localWeightSum[GI], sigmaSQ[GI]) =
+          fractionOfSpreadLocalization (
+            grid, GI, delta, localWeightSum[GI], sigmaSQ[GI],
+            localWeights.data ());
       }
       //#619
       // local covariance based on the grid aproxximation:
       // CALL covariance(D,period,ngrid,flocal(i),wlocal,y,Qi)
       auto localCovariance =
-        CalculateCovarianceMatrix (grid, localWeights, localWeightSum);
+        CalculateCovarianceMatrix (grid, localWeights, localWeightSum[GI]);
       // number of local points:
-      double nlocal = localWeightSum * nsamples_;
+      double nlocal = localWeightSum[GI] * nsamples_;
       // estimate local dimensionality
       LocalDimensionality[GI] = RoyVetterliDimensionality (localCovariance);
       // oracle shrinkage of covariance matrix
@@ -325,7 +334,7 @@ namespace libpamm {
       QuickShiftCutSQ_[GI] = localCovariance.trace ();
       QuickShiftCutSQ_[GI] *= QuickShiftCutSQ_[GI];
     }
-    return {normkernel, LocalDimensionality};
+    return {normkernel, LocalDimensionality, localWeightSum, sigmaSQ};
   }
   /*
       Matrix matrixOfDistances (const Matrix &points, const double *point) {
@@ -374,12 +383,12 @@ namespace libpamm {
     return localWeightSum;
   }
 
-  void pammClustering::fractionOfPointsLocalization (
+  std::pair<double, double> pammClustering::fractionOfPointsLocalization (
     const gridInfo &grid,
     const size_t gID,
     const double delta,
-    double &weight,
-    double &sigmaSQ,
+    double weight,
+    double sigmaSQ,
     double *localWeights) {
     double lim = fractionOfPointsVal_;
     if (fractionOfPointsVal_ < grid.VoronoiWeights[gID]) {
@@ -406,13 +415,14 @@ namespace libpamm {
       */
       bisectionParameter *= 2.0;
     }
+    return {weight, sigmaSQ};
   }
-  void pammClustering::fractionOfSpreadLocalization (
+  std::pair<double, double> pammClustering::fractionOfSpreadLocalization (
     const gridInfo &grid,
     const size_t gID,
     const double delta,
-    double &weight,
-    double &sigmaSQ,
+    double weight,
+    double sigmaSQ,
     double *localWeights) {
     double mindist =
       grid.gridDistancesSquared (gID, grid.gridNearestNeighbours[gID]);
@@ -423,6 +433,7 @@ namespace libpamm {
                 << std::endl;
       weight = estimateGaussianLocalization (grid, gID, sigmaSQ, localWeights);
     }
+    return {weight, sigmaSQ};
   }
 
   Eigen::VectorXd pammClustering::KernelDensityEstimation (
@@ -489,7 +500,6 @@ namespace libpamm {
   gridErrorProbabilities pammClustering::StatisticalErrorFromKDE (
     const gridInfo &grid,
     const std::vector<double> &normkernel,
-    const Eigen::VectorXd &prob,
     const Eigen::VectorXd &localDimensionality,
     const double weightNorm,
     const double kdecut2) {
@@ -593,32 +603,38 @@ namespace libpamm {
       //#828
       for (size_t GI = 0; GI < grid.size (); ++GI) {
         for (size_t boot = 0; boot < bootStraps_; ++boot) {
-          if (prob[GI] > probboot (boot, GI)) {
+          if (grid.pointProbabilities[GI] > probboot (boot, GI)) {
             errors.absolute[GI] += exp (
-              2.0 * (probboot (boot, GI) +
-                     log (1.0 - exp (prob[GI] - probboot (boot, GI)))));
+              2.0 *
+              (probboot (boot, GI) +
+               log (
+                 1.0 -
+                 exp (grid.pointProbabilities[GI] - probboot (boot, GI)))));
           } else {
             errors.absolute[GI] += exp (
               2.0 *
-              (prob[GI] + log (1.0 - exp (probboot (boot, GI) - prob[GI]))));
+              (grid.pointProbabilities[GI] +
+               log (
+                 1.0 -
+                 exp (probboot (boot, GI) - grid.pointProbabilities[GI]))));
           }
         }
         errors.absolute[GI] =
           log (sqrt (errors.absolute[GI] / (bootStraps_ - 1.0)));
-        errors.relative[GI] = errors.absolute[GI] - prob[GI];
+        errors.relative[GI] = errors.absolute[GI] - grid.pointProbabilities[GI];
       }
     } else {
       // use a binomial-distribution ansatz to estimate the error
       for (size_t GI = 0; GI < grid.size (); ++GI) {
-        auto i = GI;
         double mindist =
           grid.gridDistancesSquared (GI, grid.gridNearestNeighbours[GI]);
-        errors.relative[i] = log (sqrt (
-          (((pow (mindist * TWOPI, -localDimensionality[i])) / exp (prob[i])) -
+        errors.relative[GI] = log (sqrt (
+          (((pow (mindist * TWOPI, -localDimensionality[GI])) /
+            exp (grid.pointProbabilities[GI])) -
            1.0) /
           nsamples_));
 
-        errors.absolute[i] = errors.relative[i] + prob[i];
+        errors.absolute[GI] = errors.relative[GI] + grid.pointProbabilities[GI];
       }
     }
     return errors;
@@ -668,7 +684,7 @@ namespace libpamm {
       for (size_t i = 0; i < counter; ++i) {
         // we found a new root, and we now set this point as the root for all
         // the point that are in this qspath
-        roots[qspath[i]] = roots[roots[qspath[counter]]];
+        roots[qspath[GI]] = roots[roots[qspath[counter]]];
       }
     }
 
@@ -703,49 +719,10 @@ namespace libpamm {
     return qs_next;
   }
 
-  void pammClustering::gridOutput (
-    const gridInfo &grid,
-    const quickShiftOutput &clusterInfo,
-    const gridErrorProbabilities &errors,
-    const Eigen::VectorXd &prob,
-    const Eigen::VectorXd &localDimensionality) const {
-    // TODO
-    /*
-    IF(verbose) write(*,*) "Writing out"
-    OPEN(UNIT=11,FILE=trim(outputfile)//".grid",STATUS='REPLACE',ACTION='WRITE')
-    OPEN(UNIT=13,FILE=trim(outputfile)//".dim",STATUS='REPLACE',ACTION='WRITE')
-    DO i=1,ngrid
-       WRITE(13,"((A1,ES15.4E4))") " ", Di(i)
-       DO j=1,D
-          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
-       ENDDO
-
-       CALL invmatrix(D,Hiinv(:,:,i),Hi)
-
-       !print out grid file with additional information on probability, errors,
-       localization, weights in voronoi, dim
-       WRITE(11,"blabla") &
-          " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
-          " " , prob(i) ,      &
-          " " , pabserr(i),    &
-          " " , prelerr(i),    &
-          " " , sigma2(i),     &
-          " " , flocal(i),     &
-          " " , wi(i),         &
-          " " , Di(i),         &
-          " " , trmatrix(D,Hi)/DBLE(D)
-
-    ENDDO
-
-    CLOSE(UNIT=11)
-    */
-  }
-
   std::vector<gaussian> pammClustering::classification (
     const gridInfo &grid,
     const quickShiftOutput &clusterInfo,
-    const std::vector<double> &normkernel,
-    const Eigen::VectorXd &prob) const {
+    const std::vector<double> &normkernel) const {
     //#977
     // vonMises distribution with type -> periodic
     // gaussians distribution with type -> non periodic
@@ -753,21 +730,77 @@ namespace libpamm {
     std::vector<gaussian> clusters;
     clusters.reserve (nClusters);
 
-    double normpks = accumulateLogsumexp (clusterInfo.gridToClusterIdx, prob);
+    double normpks = accumulateLogsumexp (
+      clusterInfo.gridToClusterIdx, grid.pointProbabilities);
     for (const size_t idK : clusterInfo.clustersIndexes) {
       clusters.emplace_back (gaussian (
         dim_, idK, nmsopt_, normpks, grid, clusterInfo, HiInvStore_[idK],
-        normkernel, prob));
+        normkernel, grid.pointProbabilities));
     }
     return clusters;
   }
 
-  void pammClustering::printClusters (std::vector<gaussian> clusters) const {
+  void pammClustering::printPAMMFile (std::vector<gaussian> clusters) const {
     std::ofstream fout (outputFilesNames_ + ".pamm");
     fout << "# PAMM++ clusters analysis. NSamples: " << nsamples_
          << " NGrid: " << gridDim_ << " QSLambda: " << quickShiftLambda_
          << '\n';
-    fout << "# Dimensionality/NClusters//Pk/Mean/Covariance";
+    fout << "# Dimensionality/NClusters//Pk/Mean/Covariance\n";
+
+    for (const auto &cluster : clusters) {
+      fout << cluster << '\n';
+    }
+  }
+
+  void pammClustering::printDIMFile (
+    const Eigen::VectorXd &localDimensionality) const {
+    std::ofstream fout (outputFilesNames_ + ".dim");
+    fout.precision (4);
+    fout << std::scientific;
+    for (const auto &d : localDimensionality) {
+      fout << std::setw (15) << d << '\n';
+    }
+  }
+  void pammClustering::printGRIDFile (
+    const gridInfo &grid,
+    const quickShiftOutput &clusterInfo,
+    const gridErrorProbabilities &errors,
+    const Eigen::VectorXd &localDimensionality) const {
+    // create a map with the ids of the clustecenters
+    std::map<size_t, size_t> clusterNames;
+    {
+      size_t cn = 0;
+      for (auto t : clusterInfo.clustersIndexes) {
+        clusterNames[t] = cn;
+        ++cn;
+      }
+    }
+
+    std::ofstream fout (outputFilesNames_ + ".grid");
+    for (size_t GI; GI < grid.size (); ++GI) {
+      for (const auto v : grid.grid.row (GI)) {
+        fout << " " << v;
+      }
+      auto Hi = HiInvStore_[GI].inverse ();
+      //#960
+      //! print out grid file with additional information on probability,errors,
+      //! localization, weights in voronoi, dim
+      // I5, ES18.7E4, ES15.4E4, ES15.4E4, ES15.4E4, ES15.4E4, ES15.4E4,
+      // ES15.4E4, ES15.4E4
+      fout
+        << " "
+        << clusterNames.at (
+             clusterInfo.gridToClusterIdx[GI]); // MINLOC (ABS (clustercenters -
+                                                // idxroot (GI)), 1);
+      fout << " " << grid.pointProbabilities[GI];
+      fout << " " << errors.absolute[GI];
+      fout << " " << errors.relative[GI];
+      fout << " " << grid.sigmaSQ[GI];
+      fout << " " << grid.localWeightSum[GI];
+      fout << " " << grid.VoronoiWeights[GI];
+      fout << " " << localDimensionality[GI];
+      fout << " " << Hi.trace () / static_cast<double> (dim_);
+    }
   }
 
 } // namespace libpamm

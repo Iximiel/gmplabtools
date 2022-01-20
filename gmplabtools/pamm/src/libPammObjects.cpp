@@ -11,6 +11,9 @@ namespace libpamm {
       VoronoiWeights (gridDim, 0.0),
       voronoiAssociationIndex (gridDim, 0),
       gridNearestNeighbours (gridDim, 0),
+      // localWeightSum (gridDim, 0), //will be initializated when needed
+      // sigmaSQ (gridDim, 0),//will be initializated when needed
+      // pointProbabilities (gridDim),//will be initializated when needed
       samplesIndexes (gridDim, std::vector<size_t> (0)),
       gridDistancesSquared (gridDim) {}
 
@@ -182,14 +185,23 @@ namespace libpamm {
     icov = cov.inverse ();
     lnorm = log (1.0 / sqrt (pow (TWOPI, D) * det));
   }
+
+  std::string myformat (double x) {
+    char buf[22];
+    // fortran original formats with  ES21.8E4, C cannot serve the 4 digit for
+    // the exponent, or at least I don't know how and google do not help
+    std::snprintf (buf, 22, "%21.8E", x);
+    return {buf};
+  }
+
   std::ostream &operator<< (std::ostream &stream, gaussian g) {
-    stream << " " << g.weight;
+    stream << " " << myformat (g.weight);
     for (const auto m : g.center) {
-      stream << " " << m;
+      stream << " " << myformat (m);
     }
     for (size_t row = 0; row < g.D; ++row) {
       for (size_t col = 0; col < g.D; ++col) {
-        stream << " " << g.cov (row, col);
+        stream << " " << myformat (g.cov (row, col));
       }
     }
     return stream;

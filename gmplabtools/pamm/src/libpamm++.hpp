@@ -10,6 +10,7 @@ double __libpamm_MOD_mahalanobis(int, double *period, double *x, double *y,
 */
 #include <Eigen/Core>
 #include <dynamicMatrices/dynamicMatrices.hpp>
+#include <iosfwd>
 #include <random>
 #include <set>
 #include <vector>
@@ -37,6 +38,9 @@ namespace libpamm {
     std::vector<double> VoronoiWeights{};          // wi
     std::vector<size_t> voronoiAssociationIndex{}; // ineigh: closest sample
     std::vector<size_t> gridNearestNeighbours{};
+    std::vector<double> localWeightSum{}; // flocal
+    std::vector<double> sigmaSQ{};        // sigma2
+    Eigen::VectorXd pointProbabilities{}; // prob
     std::vector<std::vector<size_t>> samplesIndexes{};
     distanceMatrix gridDistancesSquared{0};
     size_t size () const;
@@ -87,6 +91,8 @@ namespace libpamm {
     // friend std::ostream& operator << (std::ostream&,gaussian);
   };
 
+  std::ostream &operator<< (std::ostream &, gaussian);
+
   class pammClustering final {
   public:
     pammClustering ();
@@ -115,21 +121,26 @@ namespace libpamm {
       const size_t gridPoint,
       const double sigma2,
       double *outweights) const;
-    std::pair<std::vector<double>, Eigen::VectorXd>
+    /// returns normkernel, LocalDimensionality, localWeightSum, sigmaSQ
+    std::tuple<
+      std::vector<double>,
+      Eigen::VectorXd,
+      std::vector<double>,
+      std::vector<double>>
     bandwidthEstimation (const gridInfo &, const Matrix &, const double);
-    void fractionOfPointsLocalization (
+    std::pair<double, double> fractionOfPointsLocalization (
       const gridInfo &grid,
       const size_t gID,
       const double delta,
-      double &weight,
-      double &sigmaSQ,
+      double weight,
+      double sigmaSQ,
       double *localWeights);
-    void fractionOfSpreadLocalization (
+    std::pair<double, double> fractionOfSpreadLocalization (
       const gridInfo &grid,
       const size_t gID,
       const double delta,
-      double &weight,
-      double &sigmaSQ,
+      double weight,
+      double sigmaSQ,
       double *localWeights);
     Eigen::VectorXd KernelDensityEstimation (
       const gridInfo &,
@@ -139,7 +150,6 @@ namespace libpamm {
     gridErrorProbabilities StatisticalErrorFromKDE (
       const gridInfo &grid,
       const std::vector<double> &normkernel,
-      const Eigen::VectorXd &prob,
       const Eigen::VectorXd &localDimensionality,
       const double weightNorm,
       const double kdecut2);
@@ -147,18 +157,17 @@ namespace libpamm {
     quickShiftOutput quickShift (
       const gridInfo &grid, const Eigen::VectorXd &probabilities) const;
 
-    void gridOutput (
-      const gridInfo &grid,
-      const quickShiftOutput &clusterInfo,
-      const gridErrorProbabilities &errors,
-      const Eigen::VectorXd &prob,
-      const Eigen::VectorXd &localDimensionality) const;
     std::vector<gaussian> classification (
       const gridInfo &grid,
       const quickShiftOutput &clusterInfo,
-      const std::vector<double> &normkernel,
-      const Eigen::VectorXd &prob) const;
-    void printClusters (std::vector<gaussian> clusters) const;
+      const std::vector<double> &normkernel) const;
+    void printGRIDFile (
+      const gridInfo &grid,
+      const quickShiftOutput &clusterInfo,
+      const gridErrorProbabilities &errors,
+      const Eigen::VectorXd &localDimensionality) const;
+    void printDIMFile (const Eigen::VectorXd &) const;
+    void printPAMMFile (std::vector<gaussian> clusters) const;
 
   private:
     size_t dim_{0};
@@ -235,8 +244,7 @@ namespace libpamm {
     const double mergeThreshold,
     const gridInfo &grid,
     const quickShiftOutput &qsOut,
-    const gridErrorProbabilities &errors,
-    const Eigen::VectorXd &prob);
+    const gridErrorProbabilities &errors);
 
   double RoyVetterliDimensionality (const Matrix &square);
 

@@ -124,11 +124,11 @@ namespace libpamm {
     const double mergeThreshold,
     const gridInfo &grid,
     const quickShiftOutput &qsOut,
-    const gridErrorProbabilities &errors,
-    const Eigen::VectorXd &prob) {
+    const gridErrorProbabilities &errors) {
     //#907
     // get sum of the probs, the normalization factor
-    double normpks = accumulateLogsumexp (qsOut.gridToClusterIdx, prob);
+    double normpks =
+      accumulateLogsumexp (qsOut.gridToClusterIdx, grid.pointProbabilities);
     std::vector<size_t> newClusterCenters (
       qsOut.clustersIndexes.begin (), qsOut.clustersIndexes.end ());
     std::vector<size_t> newgridToClusterIdx = qsOut.gridToClusterIdx;
@@ -138,7 +138,9 @@ namespace libpamm {
     for (auto idK : qsOut.clustersIndexes) {
       // compute the relative weight of the cluster
       double mergeParameter = exp (
-        accumulateLogsumexp_if (qsOut.gridToClusterIdx, prob, idK) - normpks);
+        accumulateLogsumexp_if (
+          qsOut.gridToClusterIdx, grid.pointProbabilities, idK) -
+        normpks);
       /*
       std::cerr << idK << " " << k << ": " << mergeParameter << " "
                 << ((mergeParameter < mergeThreshold) ? "merge"
@@ -187,7 +189,8 @@ namespace libpamm {
         // max prob within abs err
         for (size_t i = 0; i < newgridToClusterIdx.size (); ++i) {
           if (newgridToClusterIdx[i] == idK) {
-            double tempP = exp (prob[i]) + exp (errors.absolute[i]);
+            double tempP =
+              exp (grid.pointProbabilities[i]) + exp (errors.absolute[i]);
             if (maxP < tempP) {
               maxP = tempP;
               newCentroidIndex = i;

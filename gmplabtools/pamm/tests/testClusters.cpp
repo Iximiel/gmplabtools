@@ -31,6 +31,8 @@ TEST_CASE (
   grid.grid.row (5) << 0.0, 2.0;
   grid.grid.row (6) << 2.0, 1.8;
   grid.grid.row (7) << 2.0, 2.0;
+
+  grid.pointProbabilities = probs;
   for (size_t i = 0; i < grid.size (); ++i) {
     for (size_t j = i + 1; j < grid.size (); ++j) {
       auto distV = grid.grid.row (i) - grid.grid.row (j);
@@ -51,7 +53,7 @@ TEST_CASE (
     movements)
 */
   {
-    auto out = libpamm::clusterMerger (0.21, grid, t, errors, probs);
+    auto out = libpamm::clusterMerger (0.21, grid, t, errors);
     // print (out, std::cerr);
     CHECK (out.clustersIndexes.count (1) != 0);
     CHECK (out.clustersIndexes.count (3) == 0);
@@ -60,7 +62,7 @@ TEST_CASE (
     CHECK (out.clustersIndexes.count (7) == 0); // 7->6
   }
   {
-    auto out = libpamm::clusterMerger (0.23, grid, t, errors, probs);
+    auto out = libpamm::clusterMerger (0.23, grid, t, errors);
     // print (out, std::cerr);
     CHECK (out.clustersIndexes.count (1) == 0); // 1->5
     CHECK (out.clustersIndexes.count (3) == 0);
@@ -70,7 +72,7 @@ TEST_CASE (
   }
 
   {
-    auto out = libpamm::clusterMerger (0.1, grid, t, errors, probs);
+    auto out = libpamm::clusterMerger (0.1, grid, t, errors);
     // print (out, std::cerr);
     // no movements
     CHECK (out.clustersIndexes.count (1) != 0);
