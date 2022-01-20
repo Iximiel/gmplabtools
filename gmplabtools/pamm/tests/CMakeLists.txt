@@ -22,7 +22,7 @@ FetchContent_MakeAvailable(Catch2)
 
 # testing binary
 add_executable(pamm_test test.cxx testClusters.cpp)
-target_link_libraries(pamm_test PRIVATE base Catch2::Catch2)
+target_link_libraries(pamm_test PRIVATE pammPP Catch2::Catch2)
 target_include_directories(pamm_test
   PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}

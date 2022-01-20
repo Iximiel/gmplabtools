@@ -67,9 +67,9 @@ set(EIGEN_BUILD_PKGCONFIG OFF)
 set( OFF)
 FetchContent_MakeAvailable(Eigen)
 
-add_library(base libpamm++.cpp libPammObjects.cpp)
-target_link_libraries(base DynamicMatrices::DynamicMatrices Eigen3::Eigen)
-target_include_directories(base
+add_library(pammPP libpamm++.cpp libPammObjects.cpp libPammFunctions.cpp)
+target_link_libraries(pammPP DynamicMatrices::DynamicMatrices Eigen3::Eigen)
+target_include_directories(pammPP
   PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
@@ -99,4 +99,4 @@ target_include_directories(base
 #FetchContent_MakeAvailable(BLASpp)
 
 add_executable(pamm++ pamm++.cxx)
-target_link_libraries(pamm++ base)
+target_link_libraries(pamm++ pammPP)

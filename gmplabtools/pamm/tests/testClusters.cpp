@@ -2,8 +2,7 @@
 #include <catch2/catch.hpp>
 #include <iostream>
 
-void print (
-  const libpamm::pammClustering::quickShiftOutput &t, std::ostream &stream) {
+void print (const libpamm::quickShiftOutput &t, std::ostream &stream) {
   for (auto i : t.clustersIndexes) {
     stream << i << " ";
   }
@@ -16,15 +15,14 @@ void print (
 TEST_CASE (
   "Testing the cluster collapse algorithm with fake data",
   "[ClusterCollapse]") {
-  libpamm::pammClustering::quickShiftOutput t{
-    {1, 3, 5, 7}, {1, 1, 5, 3, 1, 5, 7, 7}};
+  libpamm::quickShiftOutput t{{1, 3, 5, 7}, {1, 1, 5, 3, 1, 5, 7, 7}};
   // print (t, std::cerr);
   Eigen::VectorXd probs (8);
   probs << 0.1, .01, .05, .6, .1, .1, .2, .3;
-  libpamm::pammClustering::gridErrorProbabilities errors (8);
+  libpamm::gridErrorProbabilities errors (8);
   errors.absolute = {0.1, 0.3, 0.2, 0.01, 0.1, 0.5, 0.6, 0.1};
   errors.relative = {0.1, 0.3, 0.2, 0.01, 0.1, 0.5, 0.6, 0.1};
-  libpamm::pammClustering::gridInfo grid (8, 2);
+  libpamm::gridInfo grid (8, 2);
   grid.grid.row (0) << 0.1, 0.0;
   grid.grid.row (1) << 0.0, 0.0;
   grid.grid.row (2) << 0.0, 2.0;
@@ -53,8 +51,7 @@ TEST_CASE (
     movements)
 */
   {
-    auto out =
-      libpamm::pammClustering::clusterMerger (0.21, grid, t, errors, probs);
+    auto out = libpamm::clusterMerger (0.21, grid, t, errors, probs);
     // print (out, std::cerr);
     CHECK (out.clustersIndexes.count (1) != 0);
     CHECK (out.clustersIndexes.count (3) == 0);
@@ -63,8 +60,7 @@ TEST_CASE (
     CHECK (out.clustersIndexes.count (7) == 0); // 7->6
   }
   {
-    auto out =
-      libpamm::pammClustering::clusterMerger (0.23, grid, t, errors, probs);
+    auto out = libpamm::clusterMerger (0.23, grid, t, errors, probs);
     // print (out, std::cerr);
     CHECK (out.clustersIndexes.count (1) == 0); // 1->5
     CHECK (out.clustersIndexes.count (3) == 0);
@@ -74,8 +70,7 @@ TEST_CASE (
   }
 
   {
-    auto out =
-      libpamm::pammClustering::clusterMerger (0.1, grid, t, errors, probs);
+    auto out = libpamm::clusterMerger (0.1, grid, t, errors, probs);
     // print (out, std::cerr);
     // no movements
     CHECK (out.clustersIndexes.count (1) != 0);

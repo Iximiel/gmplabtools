@@ -14,27 +14,11 @@ double __libpamm_MOD_mahalanobis(int, double *period, double *x, double *y,
 #include <set>
 #include <vector>
 namespace libpamm {
-
-  double SOAPDistance (size_t dim, const double *x, const double *y);
-
-  double SOAPDistance (
-    size_t dim, const double *x, const double *y, double xyNormProduct);
-  double
-  SOAPDistanceSquaredNormalized (size_t dim, const double *x, const double *y);
-  double SOAPDistanceSquared (size_t dim, const double *x, const double *y);
-
-  double SOAPDistanceSquared (
-    size_t dim, const double *x, const double *y, double xyNormProduct);
-  double SOAPDistanceNormalized (size_t dim, const double *x, const double *y);
-  double calculateMahalanobisDistanceSquared (
-      const Eigen::VectorXd &A,
-      const Eigen::VectorXd &B,
-      const Matrix &invCov);
-
   using distanceMatrix = dynamicMatrices::triangularMatrix<double>;
   using Matrix = Eigen::MatrixXd;
+  constexpr double TWOPI = 2.0 * M_PI;
+  // constexpr double log2PI = gcem::log (M_2_PI);
 
-  // using NNMatrix = triangularMatrix<size_t>;
   size_t QuickShift_nextPoint (
     const size_t ngrid,
     const size_t idx,
@@ -43,33 +27,63 @@ namespace libpamm {
     const Eigen::VectorXd &probnmm,
     const distanceMatrix &distmm);
 
-    struct gridInfo {
-      /// Contains the information for the grid
-      gridInfo () = delete;
-      gridInfo (size_t gridDim, size_t dataDim);
-      Matrix grid{0, 0};
-      std::vector<size_t> gridIndexes{}; // idxgrid
-      // std::vector<size_t> NofSamples{};// ni is .size of samplesIndexes
-      std::vector<double> VoronoiWeights{};          // wi
-      std::vector<size_t> voronoiAssociationIndex{}; // ineigh: closest sample
-      std::vector<size_t> gridNearestNeighbours{};
-      std::vector<std::vector<size_t>> samplesIndexes{};
-      distanceMatrix gridDistancesSquared{0};
-      size_t size () const;
-    };
+  struct gridInfo {
+    /// Contains the information for the grid
+    gridInfo () = delete;
+    gridInfo (size_t gridDim, size_t dataDim);
+    Matrix grid{0, 0};
+    std::vector<size_t> gridIndexes{}; // idxgrid
+    // std::vector<size_t> NofSamples{};// ni is .size of samplesIndexes
+    std::vector<double> VoronoiWeights{};          // wi
+    std::vector<size_t> voronoiAssociationIndex{}; // ineigh: closest sample
+    std::vector<size_t> gridNearestNeighbours{};
+    std::vector<std::vector<size_t>> samplesIndexes{};
+    distanceMatrix gridDistancesSquared{0};
+    size_t size () const;
+    size_t dimensionality () const;
+  };
 
-    struct gridErrorProbabilities {
-      gridErrorProbabilities () = delete;
-      gridErrorProbabilities (size_t);
-      std::vector<double> absolute{}; // pabserr
-      std::vector<double> relative{}; // prelerr
-      size_t size () const;
-    };
-    struct quickShiftOutput {
-      const std::set<size_t> clustersIndexes;
-      const std::vector<size_t> gridToClusterIdx;
-    };
+  struct gridErrorProbabilities {
+    gridErrorProbabilities () = delete;
+    gridErrorProbabilities (size_t);
+    std::vector<double> absolute{}; // pabserr
+    std::vector<double> relative{}; // prelerr
+    size_t size () const;
+  };
+  struct quickShiftOutput {
+    const std::set<size_t> clustersIndexes;
+    const std::vector<size_t> gridToClusterIdx;
+  };
 
+  struct gaussian {
+    /// dimensionality of the Gaussian
+    size_t D;
+    /// weight associated with the Gaussian cluster (not included in the
+    /// normalization!)
+    double weight{};
+    /// logarithm of the normalization factor
+    double lnorm{};
+    /// determinant of the covariance matrix
+    double det{};
+    /// mean of the gaussian
+    Eigen::VectorXd center;
+    /// convariance matrix
+    Matrix cov;
+    /// inverse convariance matrix
+    Matrix icov;
+    gaussian (size_t N);
+    gaussian (
+      const size_t N,
+      const size_t gridAddr,
+      const size_t nmsopt,
+      const double normpks,
+      const gridInfo &grid,
+      const quickShiftOutput &clusterInfo,
+      Matrix HiInverse,
+      const std::vector<double> &normkernel,
+      const Eigen::VectorXd &prob);
+    void prepare ();
+  };
 
   class pammClustering final {
   public:
@@ -99,10 +113,6 @@ namespace libpamm {
       const size_t gridPoint,
       const double sigma2,
       double *outweights) const;
-    Matrix CalculateCovarianceMatrix (
-      const gridInfo &,
-      const std::vector<double> &weights,
-      const double totalWeight) const;
     std::pair<std::vector<double>, Eigen::VectorXd>
     bandwidthEstimation (const gridInfo &, const Matrix &, const double);
     void fractionOfPointsLocalization (
@@ -132,15 +142,8 @@ namespace libpamm {
       const double weightNorm,
       const double kdecut2);
 
-
-    quickShiftOutput
-    quickShift (const gridInfo &grid, const Eigen::VectorXd &probabilities);
-    static quickShiftOutput clusterMerger (
-      const double mergeThreshold,
-      const gridInfo &grid,
-      const quickShiftOutput &qsOut,
-      const gridErrorProbabilities &errors,
-      const Eigen::VectorXd &prob);
+    quickShiftOutput quickShift (
+      const gridInfo &grid, const Eigen::VectorXd &probabilities) const;
 
     void gridOutput (
       const gridInfo &grid,
@@ -149,12 +152,6 @@ namespace libpamm {
       const Eigen::VectorXd &prob,
       const Eigen::VectorXd &localDimensionality) const;
     void classification (
-      const gridInfo &grid,
-      const quickShiftOutput &clusterInfo,
-      const std::vector<double> &normkernel,
-      const Eigen::VectorXd &prob) const;
-    Matrix CalculateLogCovarianceMatrix (
-      const size_t clusterIndex,
       const gridInfo &grid,
       const quickShiftOutput &clusterInfo,
       const std::vector<double> &normkernel,
@@ -181,5 +178,59 @@ namespace libpamm {
     bool initialized_{false};
     bool dataSetNormalized_{false};
   };
+
+  // Function definitions
+  double SOAPDistance (size_t dim, const double *x, const double *y);
+
+  double SOAPDistance (
+    size_t dim, const double *x, const double *y, double xyNormProduct);
+  double
+  SOAPDistanceSquaredNormalized (size_t dim, const double *x, const double *y);
+  double SOAPDistanceSquared (size_t dim, const double *x, const double *y);
+
+  double SOAPDistanceSquared (
+    size_t dim, const double *x, const double *y, double xyNormProduct);
+  double SOAPDistanceNormalized (size_t dim, const double *x, const double *y);
+  double calculateMahalanobisDistanceSquared (
+    const Eigen::VectorXd &A, const Eigen::VectorXd &B, const Matrix &invCov);
+
+  double accumulateLogsumexp_if (
+    const std::vector<size_t> &indexes,
+    const std::vector<size_t> &probabilities,
+    size_t sum_if);
+
+  double accumulateLogsumexp_if (
+    const std::vector<size_t> &indexes,
+    const Eigen::VectorXd &probabilities,
+    size_t sum_if);
+  double accumulateLogsumexp (
+    const std::vector<size_t> &indexes,
+    const std::vector<size_t> &probabilities);
+
+  double accumulateLogsumexp (
+    const std::vector<size_t> &indexes, const Eigen::VectorXd &probabilities);
+
+  Matrix CalculateCovarianceMatrix (
+    const gridInfo &grid,
+    const std::vector<double> &weights,
+    const double totalWeight);
+
+  Matrix CalculateLogCovarianceMatrix (
+    const size_t clusterIndex,
+    const gridInfo &grid,
+    const quickShiftOutput &clusterInfo,
+    const std::vector<double> &normkernel,
+    const Eigen::VectorXd &prob);
+
+  Matrix oracleShrinkage (Matrix m, double dimParameter);
+
+  quickShiftOutput clusterMerger (
+    const double mergeThreshold,
+    const gridInfo &grid,
+    const quickShiftOutput &qsOut,
+    const gridErrorProbabilities &errors,
+    const Eigen::VectorXd &prob);
+
+  double RoyVetterliDimensionality (const Matrix &square);
 
 } // namespace libpamm
