@@ -26,6 +26,11 @@ namespace libpamm {
   double SOAPDistanceSquared (
     size_t dim, const double *x, const double *y, double xyNormProduct);
   double SOAPDistanceNormalized (size_t dim, const double *x, const double *y);
+  double calculateMahalanobisDistanceSquared (
+      const Eigen::VectorXd &A,
+      const Eigen::VectorXd &B,
+      const Matrix &invCov);
+
   using distanceMatrix = dynamicMatrices::triangularMatrix<double>;
   using Matrix = Eigen::MatrixXd;
 
@@ -37,12 +42,6 @@ namespace libpamm {
     const double lambda,
     const Eigen::VectorXd &probnmm,
     const distanceMatrix &distmm);
-  class pammClustering final {
-  public:
-    pammClustering ();
-    pammClustering (const pammClustering &) = delete;
-    pammClustering (pammClustering &&) = delete;
-    ~pammClustering ();
 
     struct gridInfo {
       /// Contains the information for the grid
@@ -66,7 +65,18 @@ namespace libpamm {
       std::vector<double> relative{}; // prelerr
       size_t size () const;
     };
+    struct quickShiftOutput {
+      const std::set<size_t> clustersIndexes;
+      const std::vector<size_t> gridToClusterIdx;
+    };
 
+
+  class pammClustering final {
+  public:
+    pammClustering ();
+    pammClustering (const pammClustering &) = delete;
+    pammClustering (pammClustering &&) = delete;
+    ~pammClustering ();
     void work ();
     void testLoadData ();
     void doNormalizeDataset ();
@@ -75,13 +85,9 @@ namespace libpamm {
 
     double distanceCalculator (const double *, const double *) const;
     /*
-    double calculateMahalanobisDistance (
+    double calculateMahalanobisDistanceSquared (
       const double *, const double *, const Matrix &) const;
 */
-    double calculateMahalanobisDistance (
-      const Eigen::VectorXd &A,
-      const Eigen::VectorXd &B,
-      const Matrix &invCov) const;
     void GenerateGridDistanceMatrix (gridInfo &) const;
     double estimateGaussianLocalization (
       const gridInfo &,
@@ -126,10 +132,6 @@ namespace libpamm {
       const double weightNorm,
       const double kdecut2);
 
-    struct quickShiftOutput {
-      const std::set<size_t> clustersIndexes;
-      const std::vector<size_t> gridToClusterIdx;
-    };
 
     quickShiftOutput
     quickShift (const gridInfo &grid, const Eigen::VectorXd &probabilities);

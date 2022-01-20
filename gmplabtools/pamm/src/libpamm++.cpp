@@ -89,7 +89,7 @@ namespace libpamm {
     */
   }
 
-  pammClustering::gridInfo
+  gridInfo
   pammClustering::createGrid (size_t firstPoint) const {
     gridInfo grid (gridDim, dim);
     std::vector<double> Dmins (nsamples, std::numeric_limits<double>::max ());
@@ -538,7 +538,7 @@ namespace libpamm {
         // SOAP case we simply divide the distance by the standard deviation: as
         // now I do not know how to calculate the equivalent of the mahalanobis
         // for the SOAP distance
-        double mahalanobisDistance = calculateMahalanobisDistance (
+        double mahalanobisDistance = calculateMahalanobisDistanceSquared (
           grid.grid.row (GI), grid.grid.row (GJ), HiInvStore[GI]);
         if (mahalanobisDistance > kdecut2) {
           // assume distribution in far away grid point is narrow and store sum
@@ -560,7 +560,7 @@ namespace libpamm {
               continue;
             }
             // exponent of the gaussian
-            mahalanobisDistance = calculateMahalanobisDistance (
+            mahalanobisDistance = calculateMahalanobisDistanceSquared (
               grid.grid.row (GI), grid.grid.row (GJ), HiInvStore[GJ]);
 
             // weighted natural logarithm of kernel
@@ -584,28 +584,7 @@ namespace libpamm {
     return prob;
   }
 
-  /*
-  double pammClustering::calculateMahalanobisDistance (
-    const double *A, const double *B, const Matrix &invCov) const {
-    auto vA = Eigen::Map<Eigen::Matrix<const double, -1, 1>> (
-      A, invCov.rows ()); // (A,invCov.rows ());
-    // Eigen::VectorXd vA (invCov.rows (), A);
-    auto vB =
-      Eigen::Map<Eigen::Matrix<const double, -1, 1>> (B, invCov.rows ());
-    // this may be euclidean?
-    return vA.transpose () * (invCov * vB);
-  }*/
-
-  double pammClustering::calculateMahalanobisDistance (
-    const Eigen::VectorXd &A,
-    const Eigen::VectorXd &B,
-    const Matrix &invCov) const {
-    auto D = A - B;
-    // this may be euclidean?
-    return D.transpose () * (invCov * B);
-  }
-
-  pammClustering::gridErrorProbabilities
+  gridErrorProbabilities
   pammClustering::StatisticalErrorFromKDE (
     const gridInfo &grid,
     const std::vector<double> &normkernel,
@@ -651,7 +630,7 @@ namespace libpamm {
           for (size_t GI = 0; GI < grid.size (); ++GI) {
             // this is the distance between the grid point from which we're
             // sampling (j) and the one on which we're accumulating the KDE (i)
-            double dummd1 = calculateMahalanobisDistance (
+            double dummd1 = calculateMahalanobisDistanceSquared (
               grid.grid.row (GI), grid.grid.row (GJ), HiInvStore[GJ]);
             if (dummd1 < kdecut2) {
               // if the two cells are far apart, we just compute an "average
@@ -675,7 +654,7 @@ namespace libpamm {
                 if (rndidx == grid.gridIndexes[GI]) {
                   continue;
                 }
-                double dummd1 = calculateMahalanobisDistance (
+                double dummd1 = calculateMahalanobisDistanceSquared (
                   grid.grid.row (GI), data.row (rndidx), HiInvStore[GJ]);
                 double lnK =
                   -0.5 * (normkernel[GJ] + dummd1) + log (dataWeights[rndidx]);
@@ -743,7 +722,7 @@ namespace libpamm {
     return errors;
   }
 
-  pammClustering::quickShiftOutput pammClustering::quickShift (
+  quickShiftOutput pammClustering::quickShift (
     const gridInfo &grid, const Eigen::VectorXd &probabilities) {
     // Vedaldi, A.; Soatto, S. In Computer Vision - ECCV 2008:10th European
     // Conference on Computer Vision, Marseille, France, October 12–18, 2008,
@@ -853,7 +832,7 @@ namespace libpamm {
     return sum;
   }
 
-  pammClustering::quickShiftOutput pammClustering::clusterMerger (
+  quickShiftOutput pammClustering::clusterMerger (
     const double mergeThreshold,
     const gridInfo &grid,
     const quickShiftOutput &qsOut,
@@ -996,8 +975,65 @@ namespace libpamm {
     /// inverse convariance matrix
     Matrix icov;
     gaussian (size_t N) : D (N), center (N), cov (N, N), icov (N, N) {}
-  };
+    gaussian (const size_t N, const size_t idK/*gridID*/, const size_t nmsopt, const double normpks,const gridInfo &grid,const quickShiftOutput &clusterInfo,Matrix HiInverse,    const std::vector<double> &normkernel,
+    const Eigen::VectorXd &prob)
+    : D (N), center (N), cov (N, N), icov (N, N) {
+  
+      // optional mean shift for estimation of clustermode
+      for (size_t ms = 0; ms < nmsopt; ++ms) {
+        auto msmu = Eigen::VectorXd::Zero (D);
+        // variables to set GM covariances
+        double tmppks = -std::numeric_limits<double>::max ();
+        for (size_t GI = 0; GI < grid.size (); ++GI) {
+          double mahalanobis = calculateMahalanobisDistanceSquared (
+            grid.grid.row (GI), grid.grid.row (idK), HiInverse);
+          double msw = -0.5 * (normkernel[idK] + mahalanobis) + prob[GI];
+          auto delta = grid.grid.row (GI) - grid.grid.row (idK);
 
+          msmu += exp (msw) * delta;
+
+          // log-sum-exp
+          if (msw < tmppks) {
+            tmppks += log (1.0 + exp (msw - tmppks));
+          } else {
+            tmppks = msw + log (1.0 + exp (tmppks - msw));
+          }
+        } // GI
+        
+ // TODO::if(periodic){}
+        { center += msmu / exp (tmppks); }
+      } // mean shifts
+      
+
+      // compute the covariance
+      // TODO::if(periodic){}
+      {
+        // If we have a cluster with one point we compute the weighted
+        // covariance with the points in the Voronoi
+        if (
+          std::count (
+            clusterInfo.gridToClusterIdx.begin (),
+            clusterInfo.gridToClusterIdx.end (), idK) == 1) {
+          // CALL
+          // getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),clusters(k)%cov)
+          std::cerr << " Warning: single point cluster!!! \n";
+        }
+        double accumulatedLogSum =
+          accumulateLogsumexp_if (clusterInfo.gridToClusterIdx, prob, idK);
+        cov = oracleShrinkage (
+          CalculateLogCovarianceMatrix (
+            idK, grid, clusterInfo, normkernel, prob),
+          accumulatedLogSum);
+        weight = exp (accumulatedLogSum - normpks);
+      }
+    }
+    void prepare(){
+      det=cov.determinant();
+      icov=cov.inverse();
+      lnorm = log(1.0/sqrt(pow(TWOPI,D)*det));
+
+}
+};
   void pammClustering::classification (
     const gridInfo &grid,
     const quickShiftOutput &clusterInfo,
@@ -1023,63 +1059,17 @@ namespace libpamm {
     END TYPE
     */
     const size_t nClusters = clusterInfo.clustersIndexes.size ();
-    std::vector<gaussian> clusters (nClusters, dim);
-    size_t k = 0;
+    std::vector<gaussian> clusters;clusters.reserve (nClusters);
+    
     double normpks = accumulateLogsumexp (qsOut.gridToClusterIdx, prob);
     for (const size_t idK : clusterInfo.clusterIndexes) {
-      clusters[k].center = grid.grid.row (idK);
+      
+      
+      
+clusters.emplace_back(gaussian(dim,  idK, nmsopt, normpks,grid,clusterInfo,HiInvStore[idK],normkernel,
+    prob));
 
-      // optional mean shift for estimation of clustermode
-      for (size_t ms = 0; ms < nmsopt; ++ms) {
-        auto msmu = Eigen::VectorXd::Zero (dim);
-        // variables to set GM covariances
-        double tmppks = -std::numeric_limits<double>::max ();
-        for (size_t GI = 0; GI < grid.size (); ++GI) {
-          //     DO i=1,ngrid{
-          double mahalanobis = calculateMahalanobisDistance (
-            grid.grid.row (GI), grid.grid.row (idK), HiInvStore[idK]);
-          double msw = -0.5 * (normkernel[idK] + mahalanobis) + prob[GI];
-          auto delta = grid.grid.row (GI) - grid.grid.row (idK);
-
-          msmu += exp (msw) * delta;
-
-          // log-sum-exp
-          if (msw < tmppks) {
-            tmppks += log (1.0 + exp (msw - tmppks));
-          } else {
-            tmppks = msw + log (1.0 + exp (tmppks - msw));
-          }
-        } // GI
-        /*
-                 if(periodic){
-                    vmclusters[k].center +=  msmu /exp(tmppks);
-                 }else */
-        { clusters[k].center += msmu / exp (tmppks); }
-      } // mean shifts
-      ++k;
-
-      // compute the covariance
-      // TODO::if(periodic){}
-      {
-        // If we have a cluster with one point we compute the weighted
-        // covariance with the points in the Voronoi
-        if (
-          std::count (
-            clusterInfo.gridToClusterIdx.begin (),
-            clusterInfo.gridToClusterIdx.end (), idK) == 1) {
-          // CALL
-          // getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),clusters(k)%cov)
-          std::cerr << " Warning: single point cluster!!! \n";
-        }
-        double accumulatedLogSum =
-          accumulateLogsumexp_if (clusterInfo.gridToClusterIdx, prob, idK);
-        clusters[k].cov = oracleShrinkage (
-          CalculateLogCovarianceMatrix (
-            idK, grid, clusterInfo, normkernel, prob),
-          accumulatedLogSum);
-        clusters[k].weight = exp (accumulatedLogSum - normpks);
-      }
-    } // loop for initializing the clusters
+    }
     // output
     /*#1073
       ! write the Gaussians
@@ -1097,7 +1087,7 @@ namespace libpamm {
       */
   }
 
-  Matrix pammClustering::CalculateLogCovarianceMatrix (
+  Matrix CalculateLogCovarianceMatrix (
     const size_t clusterIndex,
     const gridInfo &grid,
     const quickShiftOutput &clusterInfo,

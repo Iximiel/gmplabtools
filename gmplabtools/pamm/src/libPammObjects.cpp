@@ -2,7 +2,7 @@
 
 namespace libpamm {
 
-  pammClustering::gridInfo::gridInfo (size_t gridDim, size_t dataDim)
+  gridInfo::gridInfo (size_t gridDim, size_t dataDim)
     : grid (gridDim, dataDim),
       // NofSamples (gridDim, 0),
       gridIndexes (gridDim, 0),
@@ -12,13 +12,13 @@ namespace libpamm {
       samplesIndexes (gridDim, std::vector<size_t> (0)),
       gridDistancesSquared (gridDim) {}
 
-  size_t pammClustering::gridInfo::size () const { return grid.rows (); }
+  size_t gridInfo::size () const { return grid.rows (); }
 
-  pammClustering::gridErrorProbabilities::gridErrorProbabilities (
+  gridErrorProbabilities::gridErrorProbabilities (
     size_t gridDim)
     : absolute (gridDim, 0),
       relative (gridDim, 0) {}
-  size_t pammClustering::gridErrorProbabilities::size () const {
+  size_t gridErrorProbabilities::size () const {
     return absolute.size ();
   }
 
@@ -78,6 +78,27 @@ namespace libpamm {
   double
   SOAPDistanceSquaredNormalized (size_t dim, const double *x, const double *y) {
     return 2.0 - 2.0 * std::inner_product (x, x + dim, y, 0.0);
+  }
+
+/*
+  double pammClustering::calculateMahalanobisDistanceSquared (
+    const double *A, const double *B, const Matrix &invCov) const {
+    auto vA = Eigen::Map<Eigen::Matrix<const double, -1, 1>> (
+      A, invCov.rows ()); // (A,invCov.rows ());
+    // Eigen::VectorXd vA (invCov.rows (), A);
+    auto vB =
+      Eigen::Map<Eigen::Matrix<const double, -1, 1>> (B, invCov.rows ());
+    // this may be euclidean?
+    return vA.transpose () * (invCov * vB);
+  }*/
+
+  double calculateMahalanobisDistanceSquared (
+    const Eigen::VectorXd &A,
+    const Eigen::VectorXd &B,
+    const Matrix &invCov) {
+    auto D = A - B;
+    // this may be euclidean?
+    return D.transpose () * (invCov * B);
   }
 
   distanceMatrix
