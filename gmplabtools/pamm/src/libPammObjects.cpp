@@ -1,5 +1,6 @@
 #include "libpamm++.hpp"
 #include <Eigen/Eigenvalues>
+#include <iomanip>
 #include <iostream>
 namespace libpamm {
   const double log2PI = std::log (TWOPI);
@@ -181,5 +182,16 @@ namespace libpamm {
     icov = cov.inverse ();
     lnorm = log (1.0 / sqrt (pow (TWOPI, D) * det));
   }
-
+  std::ostream &operator<< (std::ostream &stream, gaussian g) {
+    stream << " " << g.weight;
+    for (const auto m : g.center) {
+      stream << " " << m;
+    }
+    for (size_t row = 0; row < g.D; ++row) {
+      for (size_t col = 0; col < g.D; ++col) {
+        stream << " " << g.cov (row, col);
+      }
+    }
+    return stream;
+  }
 } // namespace libpamm

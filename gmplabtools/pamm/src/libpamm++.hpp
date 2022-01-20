@@ -83,6 +83,8 @@ namespace libpamm {
       const std::vector<double> &normkernel,
       const Eigen::VectorXd &prob);
     void prepare ();
+
+    // friend std::ostream& operator << (std::ostream&,gaussian);
   };
 
   class pammClustering final {
@@ -151,30 +153,35 @@ namespace libpamm {
       const gridErrorProbabilities &errors,
       const Eigen::VectorXd &prob,
       const Eigen::VectorXd &localDimensionality) const;
-    void classification (
+    std::vector<gaussian> classification (
       const gridInfo &grid,
       const quickShiftOutput &clusterInfo,
       const std::vector<double> &normkernel,
       const Eigen::VectorXd &prob) const;
+    void printClusters (std::vector<gaussian> clusters) const;
 
   private:
-    size_t dim{0};
-    size_t nsamples{0};
-    size_t gridDim{0};
-    size_t bootStraps{73};
-    size_t nmsopt{1};
+    size_t dim_{0};
+    size_t nsamples_{0};
+    size_t gridDim_{0};
+    size_t bootStraps_{0};
+    size_t nmsopt_{0};
     // TODO: setup
-    double fractionOfPointsVal{0.1};
-    double fractionOfSpreadVal{0.1};
+    double fractionOfPointsVal_{0.15};
+    double fractionOfSpreadVal_{-1.0};
+    double quickShiftLambda_{1.0};
     /// parmeter controlling the merging of the outlier clusters
-    double thrpcl{0.15};
-    double tune{0.01};
-    std::vector<double> dataWeights{};
-    std::vector<double> QuickShiftCutSQ{};
+    double thrpcl_{0.0};
+    /// tune is not a setting!
+    double tune_{0.00};
+    std::string outputFilesNames_{"default"};
+    std::vector<double> dataWeights_{};
+    std::vector<double> QuickShiftCutSQ_{};
     Matrix data{0, 0}; /// TODO: correct this
     gridInfo createGrid (size_t firstPoint = 0) const;
-    std::vector<Matrix> HiInvStore{};
-    std::mt19937_64 randomEngine{1};
+    std::vector<Matrix> HiInvStore_{};
+    size_t rngSeed_{12345};
+    std::mt19937_64 randomEngine_{rngSeed_};
     bool initialized_{false};
     bool dataSetNormalized_{false};
   };

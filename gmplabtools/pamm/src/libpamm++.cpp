@@ -18,7 +18,7 @@ namespace libpamm {
 
   pammClustering::~pammClustering () {
     /*
-    if (nsamples > 0) {
+    if (nsamples_ > 0) {
       delete[] data[0];
     }
     delete[] data;
@@ -26,18 +26,18 @@ namespace libpamm {
   }
 
   gridInfo pammClustering::createGrid (size_t firstPoint) const {
-    gridInfo grid (gridDim, dim);
-    std::vector<double> Dmins (nsamples, std::numeric_limits<double>::max ());
-    std::vector<size_t> closestGridIndex (nsamples, 0);
+    gridInfo grid (gridDim_, dim_);
+    std::vector<double> Dmins (nsamples_, std::numeric_limits<double>::max ());
+    std::vector<size_t> closestGridIndex (nsamples_, 0);
     /*
     auto copyPoint = [this] (auto &row, const double *dataPoint) {
-      std::copy (dataPoint, dataPoint + dim, row.begin ());
+      std::copy (dataPoint, dataPoint + dim_, row.begin ());
     };*/
     size_t jmax = 0;
     grid.gridIndexes[0] = firstPoint;
     /*
     std::copy (
-      data[firstPoint], data[firstPoint] + dim, grid.grid.row (0).begin ());
+      data[firstPoint], data[firstPoint] + dim_, grid.grid.row (0).begin ());
 */
     grid.grid.row (0) = data.row (firstPoint);
     Dmins[firstPoint] = 0.0;
@@ -45,13 +45,13 @@ namespace libpamm {
     double dij;
     {
       double dMax, dNeighMin;
-      for (size_t i = 0; i < gridDim - 1; ++i) {
-        grid.samplesIndexes[i].reserve (nsamples / gridDim);
+      for (size_t i = 0; i < gridDim_ - 1; ++i) {
+        grid.samplesIndexes[i].reserve (nsamples_ / gridDim_);
         dMax = 0.0;
         dNeighMin = std::numeric_limits<double>::max ();
         size_t gridIndex = grid.gridIndexes[i];
         // find the farthest point from gridIndex
-        for (auto j = 0U; j < nsamples; ++j) {
+        for (auto j = 0U; j < nsamples_; ++j) {
           if (gridIndex == j) {
             continue;
           }
@@ -80,29 +80,29 @@ namespace libpamm {
     }
     // completes the voronoi attribuition for the last point in the grid
     {
-      auto gridIndex = grid.gridIndexes[gridDim - 1];
-      grid.samplesIndexes[gridDim - 1].reserve (nsamples / gridDim);
+      auto gridIndex = grid.gridIndexes[gridDim_ - 1];
+      grid.samplesIndexes[gridDim_ - 1].reserve (nsamples_ / gridDim_);
       auto dNeighMin = std::numeric_limits<double>::max ();
-      for (auto j = 0U; j < nsamples; ++j) {
+      for (auto j = 0U; j < nsamples_; ++j) {
         if (gridIndex == j) {
           continue;
         }
         dij = distanceCalculator (gridIndex, j);
         if (dij < Dmins[j]) {
           Dmins[j] = dij;
-          closestGridIndex[j] = gridDim - 1;
+          closestGridIndex[j] = gridDim_ - 1;
         }
         if (dij < dNeighMin && (0.0 < dij)) {
           dNeighMin = dij;
-          grid.voronoiAssociationIndex[gridDim - 1] = j;
+          grid.voronoiAssociationIndex[gridDim_ - 1] = j;
         }
       }
     }
     // Assign neighbor list pointer of voronois
     // Number of points in each voronoi polyhedra
 
-    for (auto j = 0U; j < nsamples; ++j) {
-      grid.VoronoiWeights[closestGridIndex[j]] += dataWeights[j];
+    for (auto j = 0U; j < nsamples_; ++j) {
+      grid.VoronoiWeights[closestGridIndex[j]] += dataWeights_[j];
       // TODO: push_back may result in poor performances: need to improve
       grid.samplesIndexes[closestGridIndex[j]].push_back (j);
     }
@@ -116,13 +116,13 @@ namespace libpamm {
         doNormalizeDataset ();
       }
       const double kdecut2 = 9.0 * [=] () {
-        double t = sqrt (static_cast<double> (dim)) + 1.0;
+        double t = sqrt (static_cast<double> (dim_)) + 1.0;
         return t * t;
       }();
-      // auto distances = CalculateDistanceMatrixSOAP(data, nsamples, dim);
+      // auto distances = CalculateDistanceMatrixSOAP(data, nsamples_, dim_);
       size_t randomGeneratedFirstPoint = 1;
       double totalWeight =
-        std::accumulate (dataWeights.begin (), dataWeights.end (), 0.0);
+        std::accumulate (dataWeights_.begin (), dataWeights_.end (), 0.0);
       // no need for precalculated distances
       auto grid = createGrid (randomGeneratedFirstPoint);
       // this normalizes the gridweights
@@ -143,7 +143,7 @@ namespace libpamm {
       Matrix covariance =
         CalculateCovarianceMatrix (grid, grid.VoronoiWeights, totalWeight);
 
-      double weightAccumulation = double (nsamples);
+      double weightAccumulation = double (nsamples_);
       //~MAYBE: Gabriel Graphs //gs is gabriel clusterign flag in pamm #473
       // Matrix covariance = CalculateCovarianceMatrix (grid, totalWeight);
 
@@ -162,21 +162,24 @@ namespace libpamm {
       // determine the clusters with quickShift
       auto clusters = quickShift (grid, gridPointProbabilities);
       auto mergedClusters =
-        clusterMerger (thrpcl, grid, clusters, errors, gridPointProbabilities);
+        clusterMerger (thrpcl_, grid, clusters, errors, gridPointProbabilities);
       gridOutput (
         grid, mergedClusters, errors, gridPointProbabilities,
         localDimensionality);
 
       // completing the work:
       // TODO: Gaussian for each cluster and covariance
-      classification (grid, mergedClusters, normkernel, gridPointProbabilities);
+      auto gaussianClusters = classification (
+        grid, mergedClusters, normkernel, gridPointProbabilities);
+
+      printClusters (gaussianClusters);
       // Output?
       // file to save: bs dim grid pamm
 
       std::ofstream f ("test_grid.soap");
       std::ofstream g ("test_grid.dat");
-      for (auto i = 0; i < gridDim; ++i) {
-        for (auto j = 0; j < dim; ++j) {
+      for (auto i = 0; i < gridDim_; ++i) {
+        for (auto j = 0; j < dim_; ++j) {
           f << ((j == 0) ? "" : " ") << grid.grid (i, j);
         }
         f << '\n';
@@ -195,18 +198,18 @@ namespace libpamm {
 
   void pammClustering::testLoadData () {
     std::ifstream f ("test.soap");
-    dim = 324;
-    nsamples = 30900;
-    // nsamples = 30;
-    data = Matrix (nsamples, dim);
+    dim_ = 324;
+    nsamples_ = 30900;
+    // nsamples_ = 30;
+    data = Matrix (nsamples_, dim_);
 
-    for (auto i = 0; i < nsamples; ++i) {
-      for (auto j = 0; j < dim; ++j) {
+    for (auto i = 0; i < nsamples_; ++i) {
+      for (auto j = 0; j < dim_; ++j) {
         f >> data (i, j);
       }
     }
-    dataWeights = std::vector<double> (nsamples, 1.0);
-    gridDim = 1000;
+    dataWeights_ = std::vector<double> (nsamples_, 1.0);
+    gridDim_ = 1000;
     this->initialized_ = true;
     this->dataSetNormalized_ = false;
   }
@@ -214,7 +217,7 @@ namespace libpamm {
   void pammClustering::doNormalizeDataset () {
     if (!dataSetNormalized_) {
       dataSetNormalized_ = true;
-      for (auto i = 0; i < nsamples; ++i) {
+      for (auto i = 0; i < nsamples_; ++i) {
         auto row = data.row (i);
         double norm = sqrt (
           std::inner_product (row.begin (), row.end (), row.begin (), 0.0));
@@ -233,7 +236,7 @@ namespace libpamm {
     const double *pointI, const double *pointJ) const {
     // TODO: make the user able to choose the distance algorithm
     // here we assume that the data is normalized:
-    return SOAPDistanceNormalized (dim, pointI, pointJ);
+    return SOAPDistanceNormalized (dim_, pointI, pointJ);
   }
   void pammClustering::GenerateGridDistanceMatrix (gridInfo &grid) const {
     double d;
@@ -241,7 +244,7 @@ namespace libpamm {
       auto NNdist = std::numeric_limits<double>::max ();
       for (auto j = i + 1; j < grid.size (); ++j) {
         d = SOAPDistanceSquaredNormalized (
-          dim, grid.grid.row (i).data (), grid.grid.row (j).data ());
+          dim_, grid.grid.row (i).data (), grid.grid.row (j).data ());
         grid.gridDistancesSquared (i, j) = d;
         if (d < NNdist) {
           grid.gridNearestNeighbours[i] = j;
@@ -257,7 +260,7 @@ namespace libpamm {
       for (auto i = 0; i < grid.size(); ++i) {
         auto NNdist = std::numeric_limits<double>::max ();
         for (auto j = i + 1; j < grid.size(); ++j) {
-          d = SOAPDistanceNormalized (dim, grid.grid[i], grid.grid[j]);
+          d = SOAPDistanceNormalized (dim_, grid.grid[i], grid.grid[j]);
           grid.gridDistances (i, j) = d;
           if (d < NNdist) {
             grid.gridNearestNeighbours[i] = j;
@@ -272,16 +275,16 @@ namespace libpamm {
     const gridInfo &grid, const Matrix &covariance, const double totalWeight) {
     std::vector<double> localWeights (grid.size ());
     std::vector<double> logDetHi (grid.size ());
-    QuickShiftCutSQ.resize (grid.size ());
+    QuickShiftCutSQ_.resize (grid.size ());
     std::vector<double> normkernel (grid.size ());
     Eigen::VectorXd LocalDimensionality (grid.size ());
-    HiInvStore.resize (grid.size ());
-    double delta = totalWeight / static_cast<double> (nsamples);
-    tune = 0.0;
-    for (auto D = 0; D < dim; ++D) {
-      tune += covariance (D, D);
+    HiInvStore_.resize (grid.size ());
+    double delta = totalWeight / static_cast<double> (nsamples_);
+    tune_ = 0.0;
+    for (auto D = 0; D < dim_; ++D) {
+      tune_ += covariance (D, D);
     }
-    std::vector<double> sigmaSQ (grid.size (), tune);
+    std::vector<double> sigmaSQ (grid.size (), tune_);
     bool useFractionOfPoints = true;
     for (auto GI = 0; GI < grid.size (); ++GI) {
       double localWeightSum = estimateGaussianLocalization (
@@ -300,7 +303,7 @@ namespace libpamm {
       auto localCovariance =
         CalculateCovarianceMatrix (grid, localWeights, localWeightSum);
       // number of local points:
-      double nlocal = localWeightSum * nsamples;
+      double nlocal = localWeightSum * nsamples_;
       // estimate local dimensionality
       LocalDimensionality[GI] = RoyVetterliDimensionality (localCovariance);
       // oracle shrinkage of covariance matrix
@@ -313,14 +316,14 @@ namespace libpamm {
                   2.0 / (LocalDimensionality[GI] + 4.0)) *
                 pow (nlocal, -2.0 / (LocalDimensionality[GI] + 4.0)) *
                 inverseLocalCovariance;
-      HiInvStore[GI] = Hi.inverse ();
+      HiInvStore_[GI] = Hi.inverse ();
       // estimate logarithmic determinant of local BW H's
       logDetHi[GI] = std::log (Hi.determinant ());
       // estimate the logarithmic normalization constants
-      normkernel[GI] = static_cast<double> (dim) * log2PI + logDetHi[GI];
+      normkernel[GI] = static_cast<double> (dim_) * log2PI + logDetHi[GI];
       // adaptive QS cutoff from local covariance
-      QuickShiftCutSQ[GI] = localCovariance.trace ();
-      QuickShiftCutSQ[GI] *= QuickShiftCutSQ[GI];
+      QuickShiftCutSQ_[GI] = localCovariance.trace ();
+      QuickShiftCutSQ_[GI] *= QuickShiftCutSQ_[GI];
     }
     return {normkernel, LocalDimensionality};
   }
@@ -378,22 +381,22 @@ namespace libpamm {
     double &weight,
     double &sigmaSQ,
     double *localWeights) {
-    double lim = fractionOfPointsVal;
-    if (fractionOfPointsVal < grid.VoronoiWeights[gID]) {
+    double lim = fractionOfPointsVal_;
+    if (fractionOfPointsVal_ < grid.VoronoiWeights[gID]) {
       lim = weight + delta;
       std::cerr << " Warning: localization smaller than voronoi, increase grid "
                    "size (meanwhile adjusted localization)!"
                 << std::endl;
     }
-    // quick approach by "tune" steps
+    // quick approach by steps of  "tune_" dimension
     while (weight < lim) {
-      sigmaSQ += tune;
+      sigmaSQ += tune_;
       weight = estimateGaussianLocalization (grid, gID, sigmaSQ, localWeights);
     }
-    // using bisection to fine tune the localizatiom
+    // using bisection to fine tune_ the localizatiom
     double bisectionParameter = 2.0;
     while ((weight - lim < delta) && (weight - lim > -delta)) { //(true){}
-      sigmaSQ += tune / (bisectionParameter) * (weight < lim) ? 1.0 : -1.0;
+      sigmaSQ += tune_ / (bisectionParameter) * (weight < lim) ? 1.0 : -1.0;
       weight = estimateGaussianLocalization (grid, gID, sigmaSQ, localWeights);
       /*
        if ((weight - lim < delta) && (weight - lim > -delta)) {
@@ -438,7 +441,7 @@ namespace libpamm {
         // now I do not know how to calculate the equivalent of the mahalanobis
         // for the SOAP distance
         double mahalanobisDistance = calculateMahalanobisDistanceSquared (
-          grid.grid.row (GI), grid.grid.row (GJ), HiInvStore[GI]);
+          grid.grid.row (GI), grid.grid.row (GJ), HiInvStore_[GI]);
         if (mahalanobisDistance > kdecut2) {
           // assume distribution in far away grid point is narrow and store sum
           // of all contributions in grid point
@@ -460,11 +463,11 @@ namespace libpamm {
             }
             // exponent of the gaussian
             mahalanobisDistance = calculateMahalanobisDistanceSquared (
-              grid.grid.row (GI), grid.grid.row (GJ), HiInvStore[GJ]);
+              grid.grid.row (GI), grid.grid.row (GJ), HiInvStore_[GJ]);
 
             // weighted natural logarithm of kernel
             double lnK = -0.5 * (normkernel[GJ] + mahalanobisDistance) +
-                         log (dataWeights[DK]);
+                         log (dataWeights_[DK]);
             if (prob[GI] > lnK) {
               prob[GI] += log (1.0 + exp (lnK - prob[GI]));
             } else {
@@ -492,11 +495,11 @@ namespace libpamm {
     const double kdecut2) {
     // errors
     gridErrorProbabilities errors (grid.size ());
-    if (bootStraps > 0) {
+    if (bootStraps_ > 0) {
       // probabilities for each bootstrap step
-      Matrix probboot (bootStraps, grid.size ());
+      Matrix probboot (bootStraps_, grid.size ());
       // bootstrapping:
-      for (size_t boot = 0; boot < bootStraps; ++boot) {
+      for (size_t boot = 0; boot < bootStraps_; ++boot) {
         // rather than selecting nsel random points, we select a random number
         // of points from each voronoi. this makes it possible to apply some
         // simplifications and avoid computing distances from far-away voronoi
@@ -506,12 +509,12 @@ namespace libpamm {
           // an "inside out" version of the KDE code) we want to loop over grid
           // points and know how many points we should pick from a bootstrapping
           // sample. this is given by a binomial distribution -- the total
-          // number of samples will not be *exactly* nsamples, but will be close
-          // enough
+          // number of samples will not be *exactly* nsamples_, but will be
+          // close enough
           std::binomial_distribution<size_t> random_binomial (
-            nsamples, static_cast<double> (grid.samplesIndexes[GJ].size ()) /
-                        static_cast<double> (nsamples));
-          size_t nbssample = random_binomial (randomEngine);
+            nsamples_, static_cast<double> (grid.samplesIndexes[GJ].size ()) /
+                         static_cast<double> (nsamples_));
+          size_t nbssample = random_binomial (randomEngine_);
           if (nbssample == 0) {
             continue;
           }
@@ -529,7 +532,7 @@ namespace libpamm {
             // this is the distance between the grid point from which we're
             // sampling (j) and the one on which we're accumulating the KDE (i)
             double dummd1 = calculateMahalanobisDistanceSquared (
-              grid.grid.row (GI), grid.grid.row (GJ), HiInvStore[GJ]);
+              grid.grid.row (GI), grid.grid.row (GJ), HiInvStore_[GJ]);
             if (dummd1 < kdecut2) {
               // if the two cells are far apart, we just compute an "average
               // contribution" from the far away Voronoi
@@ -547,15 +550,15 @@ namespace libpamm {
                 0, grid.samplesIndexes[GJ].size () - 1);
               for (size_t k = 0; k < nbssample; ++k) {
                 size_t rndidx =
-                  grid.samplesIndexes[GJ][randomIndex (randomEngine)];
+                  grid.samplesIndexes[GJ][randomIndex (randomEngine_)];
 
                 if (rndidx == grid.gridIndexes[GI]) {
                   continue;
                 }
                 double dummd1 = calculateMahalanobisDistanceSquared (
-                  grid.grid.row (GI), data.row (rndidx), HiInvStore[GJ]);
+                  grid.grid.row (GI), data.row (rndidx), HiInvStore_[GJ]);
                 double lnK =
-                  -0.5 * (normkernel[GJ] + dummd1) + log (dataWeights[rndidx]);
+                  -0.5 * (normkernel[GJ] + dummd1) + log (dataWeights_[rndidx]);
                 if (probboot (boot, GI) > lnK) {
                   probboot (boot, GI) =
                     probboot (boot, GI) +
@@ -569,11 +572,12 @@ namespace libpamm {
           } // GI
         }   // GJ
         // normalizes the probability estimate, keeping into account that we
-        // might have used a different number of sample points than nsamples
+        // might have used a different number of sample points than nsamples_
         {
           double subtract =
             log (weightNorm) +
-            log (static_cast<double> (nbstot) / static_cast<double> (nsamples));
+            log (
+              static_cast<double> (nbstot) / static_cast<double> (nsamples_));
           std::transform (
             probboot.row (boot).begin (), probboot.row (boot).end (),
             probboot.row (boot).begin (),
@@ -588,7 +592,7 @@ namespace libpamm {
       // runs
       //#828
       for (size_t GI = 0; GI < grid.size (); ++GI) {
-        for (size_t boot = 0; boot < bootStraps; ++boot) {
+        for (size_t boot = 0; boot < bootStraps_; ++boot) {
           if (prob[GI] > probboot (boot, GI)) {
             errors.absolute[GI] += exp (
               2.0 * (probboot (boot, GI) +
@@ -600,7 +604,7 @@ namespace libpamm {
           }
         }
         errors.absolute[GI] =
-          log (sqrt (errors.absolute[GI] / (bootStraps - 1.0)));
+          log (sqrt (errors.absolute[GI] / (bootStraps_ - 1.0)));
         errors.relative[GI] = errors.absolute[GI] - prob[GI];
       }
     } else {
@@ -612,7 +616,7 @@ namespace libpamm {
         errors.relative[i] = log (sqrt (
           (((pow (mindist * TWOPI, -localDimensionality[i])) / exp (prob[i])) -
            1.0) /
-          nsamples));
+          nsamples_));
 
         errors.absolute[i] = errors.relative[i] + prob[i];
       }
@@ -652,7 +656,7 @@ namespace libpamm {
           roots[qspath[counter]] = QuickShift_nextPoint (
             grid.size (), qspath[counter],
             grid.gridNearestNeighbours[qspath[counter]],
-            QuickShiftCutSQ[qspath[counter]], probabilities,
+            QuickShiftCutSQ_[qspath[counter]], probabilities,
             grid.gridDistancesSquared);
         }
         if (roots[roots[qspath[counter]]] != 0) {
@@ -737,7 +741,7 @@ namespace libpamm {
     */
   }
 
-  void pammClustering::classification (
+  std::vector<gaussian> pammClustering::classification (
     const gridInfo &grid,
     const quickShiftOutput &clusterInfo,
     const std::vector<double> &normkernel,
@@ -745,22 +749,6 @@ namespace libpamm {
     //#977
     // vonMises distribution with type -> periodic
     // gaussians distribution with type -> non periodic
-    /*
-    ! Structure that contains the parameters needed to define and
-    ! estimate a Von Mises distribution
-    TYPE vm_type
-       INTEGER D ! dimensionality of the Gaussian
-       DOUBLE PRECISION weight ! weight associated with the Gaussian cluster
-       (not included in the normalization!)
-       DOUBLE PRECISION lnorm ! logarithm of the normalization factor
-       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: period
-       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mean
-       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: cov
-       ! convariance matrix
-       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: icov
-       ! inverse convariance matrix
-    END TYPE
-    */
     const size_t nClusters = clusterInfo.clustersIndexes.size ();
     std::vector<gaussian> clusters;
     clusters.reserve (nClusters);
@@ -768,24 +756,18 @@ namespace libpamm {
     double normpks = accumulateLogsumexp (clusterInfo.gridToClusterIdx, prob);
     for (const size_t idK : clusterInfo.clustersIndexes) {
       clusters.emplace_back (gaussian (
-        dim, idK, nmsopt, normpks, grid, clusterInfo, HiInvStore[idK],
+        dim_, idK, nmsopt_, normpks, grid, clusterInfo, HiInvStore_[idK],
         normkernel, prob));
     }
-    // output
-    /*#1073
-      ! write the Gaussians
-      ! write a 2-lines header
-      WRITE(comment,*) "# PAMMv2 clusters analysis. NSamples: ", nsamples, "
-      NGrid: ",ngrid, " QSLambda: ", qs, ACHAR(10), "#
-      Dimensionality/NClusters//Pk/Mean/Covariance"
+    return clusters;
+  }
 
-      OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
-
-      CALL writeclusters(12, comment, nk, clusters)
-      CLOSE(UNIT=12)
-      ! maybe I should deallocate better..
-      DEALLOCATE(clusters)
-      */
+  void pammClustering::printClusters (std::vector<gaussian> clusters) const {
+    std::ofstream fout (outputFilesNames_ + ".pamm");
+    fout << "# PAMM++ clusters analysis. NSamples: " << nsamples_
+         << " NGrid: " << gridDim_ << " QSLambda: " << quickShiftLambda_
+         << '\n';
+    fout << "# Dimensionality/NClusters//Pk/Mean/Covariance";
   }
 
 } // namespace libpamm
